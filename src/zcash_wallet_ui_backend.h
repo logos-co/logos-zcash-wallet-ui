@@ -35,6 +35,7 @@ public:
     void dismissSend() override;
 
     void planMigration() override;
+    void migrateNow() override;
     void approveMigration(QString password) override;
     void pauseMigration() override;
     void resumeMigration() override;
