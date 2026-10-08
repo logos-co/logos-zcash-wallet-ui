@@ -355,7 +355,8 @@ Item {
     // Below the first bundled checkpoint the core starts at Sapling activation.
     function birthdayFor(input) {
         var t = (input || "").trim()
-        var floor = root.activeNetwork === "testnet" ? 280000 : 419200
+        // Sapling's activation height; a regtest chain activates it at block 1.
+        var floor = root.activeNetwork === "testnet" ? 280000 : (root.activeNetwork === "regtest" ? 1 : 419200)
         if (t === "") return floor
         if (/^[0-9]+$/.test(t)) return Math.max(floor, parseInt(t, 10))
         var m = /^([0-9]{4})-([0-9]{1,2})$/.exec(t)
