@@ -14,6 +14,11 @@ It talks only to `zcash_wallet_backend`.
   it is paid, each with a QR code.
 - **History**, with a run's migration transactions under one heading, and **settings**: wallets, password, recovery phrase, viewing key, servers
   and proxy.
+- **Use my local node** (Servers and privacy): reads come from `zebrad_module`'s node over
+  Logos IPC; sends still go to the servers over Tor, and with no server enabled the node
+  broadcasts them itself, without Tor. The pane shows the node's state, height and peers, or
+  that it is not installed or not running for this network, and opens the Zcash Node app
+  (`zcash.node.configure`). It applies the next time a wallet opens.
 
 Passwords, phrases and keys cross the `.rep` only as SLOT arguments and return values, never
 as PROPs. CI checks that.

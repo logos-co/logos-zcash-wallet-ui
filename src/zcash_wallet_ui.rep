@@ -26,9 +26,13 @@ class ZcashWalletUi
     // QR module matrices { size, bits }, drawn by the view as rectangles.
     PROP(QString shieldedQrJson="" READONLY)
     PROP(QString transparentQrJson="" READONLY)
-    // servers() and server_health() of the node module, for the active network.
+    // servers() and server_health() of the node module, for the active network. servers()
+    // carries localNode: whether reads go to the local node.
     PROP(QString serversJson="" READONLY)
     PROP(QString serverHealthJson="" READONLY)
+    // local_node() plus the network it describes, read while the servers pane is on screen:
+    // { network, enabled, available, status?, error? }, status being zebrad_module's status().
+    PROP(QString localNodeJson="" READONLY)
     // history(page): { page, pageSize, rows }, amounts with ...Zec display strings.
     PROP(QString historyJson="" READONLY)
     PROP(int historyPage=0 READONLY)
@@ -89,4 +93,8 @@ class ZcashWalletUi
     SLOT(void applyPreset(QString name))
     // socks5h://host:port; the proxy is always required.
     SLOT(void setProxy(QString proxy))
+    // Reads from zebrad_module over Logos IPC; broadcasts stay on the servers over Tor.
+    // Returns "" or the refusal: the servers sheet is modal, so lastError would sit behind it.
+    SLOT(QString setLocalNode(bool enabled))
+    SLOT(void refreshLocalNode())
 }

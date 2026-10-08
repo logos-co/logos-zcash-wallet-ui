@@ -26,6 +26,8 @@ constexpr int kPendingHistoryPollMs = 15000;
 constexpr int kHealthPollMs = 30000;
 // A live migration moves at most every 30 s and says so by event; this read is the backstop.
 constexpr int kMigrationPollMs = 30000;
+// A local_node() read lost for this long no longer holds up the next.
+constexpr int kLocalNodeReadMs = 10000;
 
 // Zatoshis arrive as JSON integers today; accept decimal strings too.
 qint64 zat(const QJsonValue &v) { return v.isString() ? v.toString().toLongLong() : v.toInteger(); }
@@ -754,4 +756,34 @@ void ZcashWalletUiBackend::setProxy(QString proxy) {
     setLastError({});
     const QJsonObject cfg{{"proxy", proxy.trimmed()}, {"proxyRequired", true}};
     if (ok(modules().zcash_wallet_backend.set_proxy(compact(cfg)), "proxy")) { loadServers(); loadServerHealth(); }
+}
+
+// ---- the local node ------------------------------------------------------------------------
+
+QString ZcashWalletUiBackend::setLocalNode(bool enabled) {
+    const QJsonObject o = parse(modules().zcash_wallet_backend.set_local_node(enabled));
+    loadServers();
+    refreshLocalNode();
+    return o.value("ok").toBool() ? QString() : o.value("error").toString(QStringLiteral("the wallet backend did not answer"));
+}
+
+// Asynchronous: with zebrad_module absent the node module waits 1.5 s for it.
+void ZcashWalletUiBackend::refreshLocalNode() {
+    if (m_localNodeReading && m_localNodeReadAge.isValid() && m_localNodeReadAge.elapsed() < kLocalNodeReadMs) return;
+    m_localNodeReading = true;
+    m_localNodeReadAge.restart();
+    // Stamped with the network asked about, so the view drops an answer for another one.
+    const QString network = parse(networksJson()).value("active").toString();
+    modules().zcash_wallet_backend.local_nodeAsync([this, network](QString r) {
+        QTimer::singleShot(0, this, [this, network, r] {
+            m_localNodeReading = false;
+            QJsonObject o = parse(r);
+            if (!o.value("ok").toBool())
+                o = QJsonObject{{"available", false},
+                                {"error", o.value("error").toString(QStringLiteral("the wallet backend did not answer"))}};
+            o.remove("ok");
+            o.insert("network", network);
+            setLocalNodeJson(compact(o));
+        });
+    });
 }
