@@ -148,7 +148,8 @@ Item {
         if (s === root.lastSendState) return
         if (s === "signing") root.sendSigned = true
         if (s === "sent" && root.lastSendState === "signing")
-            root.notify(root.preview && root.preview.shielding ? "Shielded" : "Sent", "It shows in Activity once mined.")
+            root.notify(root.preview && root.preview.migrateNow ? "Moved"
+                        : root.preview && root.preview.shielding ? "Shielded" : "Sent", "It shows in Activity once mined.")
         root.lastSendState = s
     }
     onNeedsMixedPoolsChanged: if (root.needsMixedPools && root.ownSend && root.lastRequest) mixedPoolsSheet.open()
@@ -274,11 +275,17 @@ Item {
         root.lastRequest = null
         backend.shieldAddress(address)
     }
+    // Every spendable Orchard note at once: reviewed and approved like a send.
+    function migrateNow() {
+        root.shieldingFrom = ""
+        root.lastRequest = null
+        backend.migrateNow()
+    }
     // Done on a settled send. A send that went out clears the form behind it.
     function finishSend() {
         var s = root.send.state
         backend.dismissSend()
-        if (s === "sent" && !(root.preview && root.preview.shielding)) {
+        if (s === "sent" && !(root.preview && (root.preview.shielding || root.preview.migrateNow))) {
             sendTo.text = ""; sendAmount.text = ""; sendMemo.text = ""
         }
     }
@@ -514,7 +521,10 @@ Item {
         if (!p) return []
         var out = []
         if (p.shielding) out.push("Shielding spends one transparent address, whose amount is already public.")
-        if (root.zatOf(p.amountMadePublic) > 0)
+        if (p.migrateNow)
+            out.push("Moving now takes one transaction from Orchard, so the whole amount, "
+                     + p.amountMadePublicZec + " ZEC, becomes public. Move privately avoids that.")
+        else if (root.zatOf(p.amountMadePublic) > 0)
             out.push(p.amountMadePublicZec + " ZEC crosses between pools, so that amount becomes public.")
         if (!p.shielding && (p.recipients || []).some(function (r) { return r.pool === "transparent" }))
             out.push("The amount sent to a transparent address is public.")
@@ -1006,7 +1016,8 @@ Item {
                         message: root.balancesReady
                                  ? ((root.orchard.totalZec || "0") + " ZEC is in Orchard, which has been spend-only since NU6.3. "
                                     + (root.zatOf(root.orchard.total) >= root.minMigratable
-                                       ? "Move privately sends it into your shielded balance on the ZIP 318 schedule, over hours or days."
+                                       ? "Move privately sends it into your shielded balance on the ZIP 318 schedule, over hours or days. "
+                                         + "Move now sends all of it in one transaction, which makes the whole amount public."
                                        : "ZIP 318 does not move less than 0.01 ZEC."))
                                  : ""
                         actions: [
@@ -1017,6 +1028,14 @@ Item {
                                 text: root.migrationJob === "plan" ? "Planning…" : "Move privately"
                                 enabled: root.ready && root.migrationJob === "" && root.zatOf(root.orchard.spendable) >= root.minMigratable
                                 onClicked: root.startMigration()
+                            },
+                            LogosButton {
+                                objectName: "migrateNowButton"
+                                visible: root.zatOf(root.orchard.total) >= root.minMigratable
+                                text: "Move now"
+                                enabled: root.ready && root.migrationJob === "" && !root.sendLive
+                                         && root.zatOf(root.orchard.spendable) >= root.minMigratable
+                                onClicked: root.migrateNow()
                             },
                             LogosText {
                                 visible: root.zatOf(root.orchard.total) >= root.minMigratable
@@ -1576,7 +1595,8 @@ Item {
     LogosDialog {
         id: reviewSheet
         objectName: "reviewSheet"
-        title: root.preview && root.preview.shielding ? "Review shielding" : "Review send"
+        title: root.preview && root.preview.migrateNow ? "Review moving Orchard funds now"
+               : root.preview && root.preview.shielding ? "Review shielding" : "Review send"
         anchors.centerIn: parent
         width: Math.min(parent.width - 40, 680)
         closePolicy: Popup.NoAutoClose
@@ -1623,8 +1643,16 @@ Item {
                         text: "From " + (root.shieldingFrom || "a transparent address") + " into your shielded balance: "
                               + (root.preview ? root.preview.changeTotalZec : "") + " ZEC"
                     }
+                    LogosText {
+                        objectName: "reviewMigrateNow"
+                        visible: !!root.preview && !!root.preview.migrateNow
+                        Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                        text: "From Orchard into your shielded balance, in one transaction: "
+                              + (root.preview ? root.preview.amountMadePublicZec : "") + " ZEC"
+                    }
                     Repeater {
-                        model: root.preview ? (root.preview.recipients || []) : []
+                        // Moving now pays the wallet's own address, said above instead.
+                        model: root.preview && !root.preview.migrateNow ? (root.preview.recipients || []) : []
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 2
@@ -1744,7 +1772,8 @@ Item {
                 id: approveConfirm
                 objectName: "approveConfirm"
                 text: root.approveMode === "migration" ? "Approve and sign the run"
-                      : (root.preview && root.preview.shielding ? "Approve and shield" : "Approve and send")
+                      : (root.preview && root.preview.migrateNow ? "Approve and move"
+                         : root.preview && root.preview.shielding ? "Approve and shield" : "Approve and send")
                 variant: LogosButton.Variant.Primary
                 enabled: root.ready && approvePw.text !== ""
                          && (root.approveMode === "migration"
@@ -1810,12 +1839,19 @@ Item {
                                                        + root.zatOf(root.plan.transfers) + " transfers: "
                                                        + (root.zatOf(root.plan.preparationTransactions) + root.zatOf(root.plan.transfers))
                                                        + " in all") : "" }
+                        LogosText { text: "Fees"; color: Theme.palette.textTertiary }
+                        LogosText { objectName: "migrationFees"; textFormat: Text.PlainText
+                                    text: root.plan ? root.plan.feeTotalZec + " ZEC in all, paid from the Orchard funds" : "" }
                         LogosText { text: "First transfer"; color: Theme.palette.textTertiary }
                         LogosText { objectName: "migrationFirst"; textFormat: Text.PlainText
                                     text: root.plan ? root.whenText(root.plan.firstBroadcast) : "" }
                         LogosText { text: "Last transfer"; color: Theme.palette.textTertiary }
                         LogosText { objectName: "migrationLast"; textFormat: Text.PlainText
                                     text: root.plan ? root.whenText(root.plan.lastBroadcast) : "" }
+                        LogosText { text: "Signed until"; color: Theme.palette.textTertiary }
+                        LogosText { objectName: "migrationExpires"; Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                    text: root.plan ? root.whenText(root.plan.expiresAt)
+                                                      + ". A transfer not sent by then needs your approval again." : "" }
                         LogosText { text: "Plan"; color: Theme.palette.textTertiary }
                         LogosText { textFormat: Text.PlainText; color: Theme.palette.textSecondary
                                     text: root.plan ? root.shortId(root.plan.digest) + " · valid for about an hour" : "" }

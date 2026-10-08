@@ -140,7 +140,7 @@ QJsonObject historyWithZec(QJsonObject h) {
 bool liveSend(const QString &state) { return state == "preparing" || state == "previewed" || state == "signing"; }
 
 QJsonObject planWithZec(QJsonObject p) {
-    addZec(p, {"migrating"});
+    addZec(p, {"migrating", "feeTotal", "remainder"});
     QJsonArray amounts;
     for (const QJsonValue &v : p.value("amountsMadePublic").toArray()) amounts.append(zec(zat(v)));
     p.insert("amountsMadePublicZec", amounts);
@@ -709,7 +709,13 @@ bool ZcashWalletUiBackend::migrationIdle() {
 void ZcashWalletUiBackend::planMigration() {
     if (!migrationIdle()) return;
     dropPlan();
-    trackMigration(modules().zcash_wallet_backend.prepare_migration(), "plan");
+    trackMigration(modules().zcash_wallet_backend.prepare_migration("private"), "plan");
+}
+
+void ZcashWalletUiBackend::migrateNow() {
+    setSendError({});
+    if (!clearSettledSend()) return;
+    startSend(modules().zcash_wallet_backend.prepare_migration("now"));
 }
 
 void ZcashWalletUiBackend::approveMigration(QString password) {

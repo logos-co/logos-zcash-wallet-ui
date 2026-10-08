@@ -6,8 +6,10 @@ It talks only to `zcash_wallet_backend`.
 - **Home:** the shielded balance (Ironwood and Sapling), transparent funds per address with a
   Shield action each, and Orchard funds that need moving to Ironwood.
 - **Migration (ZIP 318):** Move privately plans the run; the review shows the amounts that
-  become public, the transactions and the schedule. The password signs the whole run, and Home
-  follows it with Pause, Resume and Cancel.
+  become public, the fees, the transactions, the schedule and when the signed transfers expire.
+  The password signs the whole run, and Home follows it with Pause, Resume and Cancel. Move now
+  sends all of it in one transaction instead, which makes the whole amount public; it is
+  reviewed and approved like a send.
 - **Send:** the recipient is checked as you type. The review shows the fee, the pools spent
   and any amount that becomes public. The password approves it.
 - **Receive:** a shielded Unified Address, and a transparent address that is replaced once

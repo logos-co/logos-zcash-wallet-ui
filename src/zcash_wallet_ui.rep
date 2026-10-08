@@ -76,6 +76,9 @@ class ZcashWalletUi
 
     // ---- the ZIP 318 migration: plan, review, approve with the password ----
     SLOT(void planMigration())
+    // Every spendable Orchard note into the shielded balance in one transaction, the whole
+    // amount public; reviewed and approved like a send.
+    SLOT(void migrateNow())
     // Signs exactly the plan on screen: its id and digest stay in the backend half.
     SLOT(void approveMigration(QString password))
     SLOT(void pauseMigration())
