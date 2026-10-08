@@ -18,8 +18,8 @@ class ZcashWalletUi
     PROP(QString networksJson="{}" READONLY)
     // [{ name, network, birthdayHeight, createdAt }] on the active network.
     PROP(QString walletsJson="[]" READONLY)
-    // balances() in zatoshis, plus ...Zec display strings, spendPool (the shielded balance Send
-    // spends: Ironwood + Sapling) and toMigrate (Orchard funds to migrate).
+    // balances() in zatoshis, plus ...Zec display strings and spendPool: the shielded balance
+    // Send spends (Ironwood + Sapling), with what is pending.
     PROP(QString balancesJson="" READONLY)
     // receive_info(): { unified, transparent }
     PROP(QString receiveJson="" READONLY)
@@ -36,6 +36,14 @@ class ZcashWalletUi
     PROP(QString sendRequestId="" READONLY)
     PROP(QString sendStatusJson="{}" READONLY)
     PROP(QString sendError="" READONLY)
+    // migration_status(): { active, status, migratable, migrated, transactions, mined, inFlight,
+    // paused, needsApproval, ... } with ...Zec strings; "" when not read.
+    PROP(QString migrationJson="" READONLY)
+    // prepare_migration()'s preview under review, with ...Zec strings; "" when none.
+    PROP(QString migrationPlanJson="" READONLY)
+    // The migration job in flight: plan, approve, pause, resume or cancel; "" when none.
+    PROP(QString migrationJobKind="" READONLY)
+    PROP(QString migrationError="" READONLY)
 
     // refresh() keeps lastError; clearAndRefresh() is the user-initiated one.
     SLOT(void refresh())
@@ -61,6 +69,16 @@ class ZcashWalletUi
     // Cancels a send still preparing or previewed; dismissSend clears a settled one locally.
     SLOT(void cancelSend())
     SLOT(void dismissSend())
+
+    // ---- the ZIP 318 migration: plan, review, approve with the password ----
+    SLOT(void planMigration())
+    // Signs exactly the plan on screen: its id and digest stay in the backend half.
+    SLOT(void approveMigration(QString password))
+    SLOT(void pauseMigration())
+    SLOT(void resumeMigration())
+    SLOT(void cancelMigration())
+    // Drops the plan under review, locally.
+    SLOT(void dismissMigrationPlan())
 
     // ---- receiving, history and network ----
     SLOT(void newAddress())

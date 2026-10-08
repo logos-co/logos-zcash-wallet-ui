@@ -74,7 +74,8 @@ Item {
     readonly property var spendPool: balancesReady ? (balances.spendPool || {}) : ({})
     readonly property var transparentPool: balancesReady ? ((balances.pools || {}).transparent || {}) : ({})
     readonly property var transparentAddresses: balancesReady && Array.isArray(balances.transparentAddresses) ? balances.transparentAddresses : []
-    readonly property var toMigrate: balancesReady ? (balances.toMigrate || {}) : ({})
+    // Orchard funds, spend-only since NU6.3, waiting to migrate: { spendable, total } in zatoshis.
+    readonly property var orchard: balancesReady ? (balances.orchardToMigrate || {}) : ({})
     // ZIP 315's un-economic balance: below this, shielding costs more than it moves.
     readonly property real shieldThreshold: balancesReady && balances.shieldingThreshold !== undefined ? zatOf(balances.shieldingThreshold) : 100000
     readonly property bool receiveRead: ready && backend.receiveJson !== ""
@@ -90,6 +91,21 @@ Item {
     readonly property bool historyRead: ready && backend.historyJson !== ""
     readonly property var historyData: historyRead ? j(backend.historyJson, "{}") : ({})
     readonly property var historyRows: Array.isArray(historyData.rows) ? historyData.rows : []
+    // Migration rows gather under one heading, placed where the newest of them was.
+    readonly property var historyView: {
+        var out = [], moves = [], at = -1
+        for (var i = 0; i < historyRows.length; i++) {
+            var r = historyRows[i]
+            if (r.kind !== "migration") { out.push(r); continue }
+            if (at < 0) at = out.length
+            moves.push(r)
+        }
+        if (moves.length === 0) return out
+        var header = { kind: "migrationGroup", txid: "migration-group", count: moves.length,
+                       pending: moves.filter(function (r) { return r.pending }).length,
+                       moved: moves.reduce(function (t, r) { return t + root.zatOf(r.amountMadePublic) }, 0) }
+        return out.slice(0, at).concat([header], migrationGroupOpen ? moves : [], out.slice(at))
+    }
     readonly property int historyPage: ready ? backend.historyPage : 0
 
     // ---- the send or shielding under review ----
@@ -121,6 +137,28 @@ Item {
         root.lastSendState = s
     }
     onNeedsMixedPoolsChanged: if (root.needsMixedPools && root.ownSend && root.lastRequest) mixedPoolsSheet.open()
+
+    // ---- the ZIP 318 migration ----
+    readonly property var migration: ready ? j(backend.migrationJson, "{}") : ({})
+    readonly property string migrationStatus: migration.status || ""
+    readonly property bool migrationLive: ["planning", "committed", "in_progress"].indexOf(migrationStatus) >= 0
+    readonly property bool migrationEnded: ["complete", "failed", "cancelled", "superseded"].indexOf(migrationStatus) >= 0
+    readonly property var plan: ready && backend.migrationPlanJson !== "" ? j(backend.migrationPlanJson, "{}") : null
+    readonly property string migrationJob: ready ? backend.migrationJobKind : ""
+    readonly property string migrationError: ready ? backend.migrationError : ""
+    // ZIP 318 moves nothing below 0.01 ZEC.
+    readonly property real minMigratable: 1000000
+    // The finished run put away by the user; the core keeps reporting the last run.
+    property string dismissedRun: ""
+    readonly property bool migrationShown: walletOpen && (migrationLive || (migrationEnded && migration.id !== dismissedRun)
+                                                          || !!migration.needsApproval)
+    // The approval dialog serves sends and migrations alike.
+    property string approveMode: "send"
+    property bool migrationGroupOpen: false
+    onPlanChanged: {
+        if (root.plan) migrationReview.open()
+        else if (root.migrationError === "") migrationReview.close()
+    }
 
     // ---- the Send form ----
     readonly property bool sendIsUri: sendTo.text.trim().toLowerCase().indexOf("zcash:") === 0
@@ -181,6 +219,7 @@ Item {
         openWalletSheet.close(); createSheet.close(); restoreSheet.close(); networkSheet.close()
         changePasswordSheet.close(); revealSheet.close(); exportKeySheet.close()
         reviewSheet.close(); approveSheet.close(); mixedPoolsSheet.close()
+        migrationReview.close(); cancelMigrationSheet.close()
     }
     function hideSecret() { root.shownSecret = ""; root.secretKind = "" }
     onWalletOpenChanged: {
@@ -230,6 +269,15 @@ Item {
     }
 
     function zatOf(v) { var n = Number(v); return isFinite(n) ? n : 0 }
+    // Display only, for sums the backend does not send; amounts it sends come as ...Zec strings.
+    function zecOf(z) {
+        var n = Math.round(root.zatOf(z)), neg = n < 0
+        n = Math.abs(n)
+        var frac = String(n % 1e8)
+        while (frac.length < 8) frac = "0" + frac
+        frac = frac.replace(/0+$/, "")
+        return (neg ? "-" : "") + Math.floor(n / 1e8) + (frac ? "." + frac : "")
+    }
     // For enabling Review only; the exact conversion happens in C++.
     function zatOfZec(t) { var n = Number(t); return isFinite(n) ? Math.round(n * 1e8) : 0 }
     function utf8Bytes(s) {
@@ -434,6 +482,71 @@ Item {
         if (!p) return ""
         if (p.shielding) return "Shield " + p.changeTotalZec + " ZEC into your shielded balance, for a " + p.feeZec + " ZEC fee."
         return "Send " + p.recipientsTotalZec + " ZEC, plus a " + p.feeZec + " ZEC fee."
+    }
+
+    // ---- migration ----
+    function startMigration() {
+        backend.planMigration()
+        migrationReview.open()
+    }
+    // Seconds until block h: 75 s a block before NU7 and 25 s from it; 75 s throughout when
+    // the plan names no NU7 height.
+    function secondsUntil(h, tip, nu7) {
+        var blocks = Math.max(0, h - tip)
+        if (!nu7) return blocks * 75
+        var before = Math.max(0, Math.min(blocks, nu7 - tip))
+        return before * 75 + (blocks - before) * 25
+    }
+    function durationText(secs) {
+        if (secs < 3600) return Math.max(1, Math.round(secs / 60)) + " min"
+        var hours = secs / 3600
+        if (hours < 48) {
+            var h = Math.floor(hours), m = Math.round((secs - h * 3600) / 60)
+            return h + " h" + (m ? " " + m + " min" : "")
+        }
+        return Math.round(hours / 24) + " days"
+    }
+    function whenText(h) {
+        var p = root.plan
+        if (!p || h === undefined || h === null) return "—"
+        return "block " + root.fmtHeight(h) + ", in about " + root.durationText(root.secondsUntil(h, p.chainTip, p.nu7Height))
+    }
+    // What stays in Orchard after this run: dust, or the rest for a later run.
+    function remainderLine() {
+        var p = root.plan
+        if (!p) return ""
+        var rest = root.zatOf(root.orchard.total) - root.zatOf(p.migrating)
+        if (rest <= 0) return ""
+        return root.zecOf(rest) + " ZEC" + (rest < root.minMigratable ? ": less than 0.01 ZEC, which ZIP 318 does not move"
+                                                                    : ": it moves in a later run")
+    }
+    function migrationApproveSummary() {
+        var p = root.plan
+        if (!p) return ""
+        var n = root.zatOf(p.preparationTransactions) + root.zatOf(p.transfers)
+        return "Sign all " + n + " transactions of this run, moving " + p.migratingZec + " ZEC into your shielded balance."
+    }
+    // Preparing until the preparation is mined, then waiting for the first transfer, then migrating.
+    function migrationStage() {
+        if (root.migrationStatus === "complete") return 4
+        if (root.zatOf(root.migration.migrated) > 0) return 2
+        if (root.zatOf(root.migration.mined) > 0) return 1
+        return 0
+    }
+    function migrationTitle() {
+        var s = root.migrationStatus
+        if (s === "complete") return "Migration complete"
+        if (s === "cancelled") return "Migration cancelled"
+        if (s === "failed") return "Migration failed"
+        if (s === "superseded") return "Migration replaced by a newer plan"
+        if (root.migration.paused === true) return "Migration paused"
+        return "Moving Orchard funds privately"
+    }
+    function migrationCounts() {
+        var m = root.migration
+        return (m.migratedZec || "0") + " of " + (m.migratableZec || "0") + " ZEC moved · "
+               + root.zatOf(m.mined) + " of " + root.zatOf(m.transactions) + " transactions mined · "
+               + root.zatOf(m.inFlight) + " in flight"
     }
 
     // ---- activity ----
@@ -754,20 +867,141 @@ Item {
                         ]
                     }
 
+                    // Migration required: Orchard funds that no live run is moving.
                     LogosNotice {
                         objectName: "orchardRow"
                         Layout.fillWidth: true
-                        shown: root.balancesReady && root.zatOf(root.toMigrate.total) > 0
-                        severity: LogosNotice.Warning
-                        title: "Orchard funds need moving"
+                        shown: root.balancesReady && root.zatOf(root.orchard.total) > 0 && !root.migrationLive
+                        severity: root.zatOf(root.orchard.total) >= root.minMigratable ? LogosNotice.Warning : LogosNotice.Info
+                        title: root.zatOf(root.orchard.total) >= root.minMigratable ? "Migration required" : "Orchard dust"
                         message: root.balancesReady
-                                 ? ((root.toMigrate.totalZec || "0") + " ZEC is in Orchard, which has been spend-only since NU6.3. "
-                                    + "Moving it privately follows the ZIP 318 schedule into your shielded balance.")
+                                 ? ((root.orchard.totalZec || "0") + " ZEC is in Orchard, which has been spend-only since NU6.3. "
+                                    + (root.zatOf(root.orchard.total) >= root.minMigratable
+                                       ? "Move privately sends it into your shielded balance on the ZIP 318 schedule, over hours or days."
+                                       : "ZIP 318 does not move less than 0.01 ZEC."))
                                  : ""
                         actions: [
                             LogosBadge { text: "Orchard"; color: Theme.palette.info },
-                            LogosButton { objectName: "migrateButton"; text: "Move privately · coming soon"; enabled: false }
+                            LogosButton {
+                                objectName: "migrateButton"
+                                visible: root.zatOf(root.orchard.total) >= root.minMigratable
+                                text: root.migrationJob === "plan" ? "Planning…" : "Move privately"
+                                enabled: root.ready && root.migrationJob === "" && root.zatOf(root.orchard.spendable) >= root.minMigratable
+                                onClicked: root.startMigration()
+                            },
+                            LogosText {
+                                visible: root.zatOf(root.orchard.total) >= root.minMigratable
+                                         && root.zatOf(root.orchard.spendable) < root.minMigratable
+                                font.pixelSize: 12
+                                color: Theme.palette.textSecondary
+                                text: "Waiting for confirmations"
+                            }
                         ]
+                    }
+
+                    // The run: its phase, how far it got, and the controls ZIP 318 leaves to the user.
+                    LogosFrame {
+                        objectName: "migrationPanel"
+                        visible: root.migrationShown
+                        Layout.fillWidth: true
+                        contentItem: ColumnLayout {
+                            spacing: Theme.spacing.small
+                            RowLayout {
+                                Layout.fillWidth: true
+                                LogosText { objectName: "migrationTitle"; font.pixelSize: 15; text: root.migrationTitle() }
+                                LogosBadge { text: "Orchard to Ironwood"; color: Theme.palette.info }
+                                Item { Layout.fillWidth: true }
+                                LogosInfoButton {
+                                    title: "Moving Orchard funds"
+                                    text: "ZIP 318 moves Orchard funds into Ironwood in fixed amounts, at random times, so that "
+                                          + "they blend with other wallets' migrations. Each amount is public as it moves; who owns it "
+                                          + "is not. The wallet broadcasts only while it is open and synced, so a run can slip by "
+                                          + "a few hours; that is normal."
+                                }
+                            }
+                            LogosStageLane {
+                                objectName: "migrationStageLane"
+                                visible: !root.migrationEnded || root.migrationStatus === "complete"
+                                Layout.fillWidth: true
+                                currentIndex: root.migrationStage()
+                                busy: root.migrationLive && root.migration.paused !== true
+                                stages: [
+                                    LogosStage { label: "Preparing"; busyLabel: "Preparing…" },
+                                    LogosStage { label: "Waiting"; busyLabel: "Waiting for its window…" },
+                                    LogosStage { label: "Migrating"; busyLabel: "Migrating…" },
+                                    LogosStage { label: "Done" }
+                                ]
+                            }
+                            LogosProgressBar {
+                                objectName: "migrationProgress"
+                                visible: root.migrationLive
+                                Layout.fillWidth: true
+                                value: root.zatOf(root.migration.migratable) > 0
+                                       ? root.zatOf(root.migration.migrated) / root.zatOf(root.migration.migratable) : 0
+                            }
+                            LogosText {
+                                objectName: "migrationCounts"
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                textFormat: Text.PlainText
+                                color: Theme.palette.textSecondary
+                                text: root.migrationStatus === "complete"
+                                      ? ((root.migration.migratedZec || "0") + " ZEC moved into your shielded balance in "
+                                         + root.zatOf(root.migration.transactions) + " transactions.")
+                                      : root.migrationCounts()
+                            }
+                            LogosText {
+                                visible: root.zatOf(root.migration.unsatisfiable) > 0
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                color: Theme.palette.warning
+                                text: root.zatOf(root.migration.unsatisfiable) + " transactions can no longer be mined."
+                            }
+                            LogosText {
+                                visible: root.migrationLive && root.migration.paused === true
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                color: Theme.palette.textSecondary
+                                text: "Paused: nothing more is broadcast until you resume. Transfers already sent may still confirm."
+                            }
+                            LogosNotice {
+                                objectName: "migrationNeedsApproval"
+                                Layout.fillWidth: true
+                                severity: LogosNotice.Warning
+                                shown: !!root.migration.needsApproval
+                                title: "The migration needs your approval"
+                                message: String(root.migration.needsApproval || "")
+                                actions: [
+                                    LogosButton { objectName: "replanMigrationButton"; text: "Plan again"
+                                                  enabled: root.ready && root.migrationJob === ""
+                                                  onClicked: root.startMigration() }
+                                ]
+                            }
+                            LogosNotice {
+                                Layout.fillWidth: true
+                                severity: LogosNotice.Error
+                                shown: message.length > 0 && !migrationReview.visible
+                                message: root.migrationError
+                            }
+                            RowLayout {
+                                spacing: Theme.spacing.small
+                                LogosButton { objectName: "pauseMigrationButton"; text: root.migrationJob === "pause" ? "Pausing…" : "Pause"
+                                              visible: root.migrationLive && root.migration.paused !== true
+                                              enabled: root.ready && root.migrationJob === ""
+                                              onClicked: backend.pauseMigration() }
+                                LogosButton { objectName: "resumeMigrationButton"; text: root.migrationJob === "resume" ? "Resuming…" : "Resume"
+                                              visible: root.migrationLive && root.migration.paused === true
+                                              enabled: root.ready && root.migrationJob === ""
+                                              onClicked: backend.resumeMigration() }
+                                LogosButton { objectName: "cancelMigrationButton"; text: root.migrationJob === "cancel" ? "Cancelling…" : "Cancel"
+                                              visible: root.migrationLive
+                                              enabled: root.ready && root.migrationJob === ""
+                                              onClicked: cancelMigrationSheet.open() }
+                                LogosButton { objectName: "dismissMigrationButton"; text: "Dismiss"
+                                              visible: root.migrationEnded
+                                              onClicked: root.dismissedRun = root.migration.id || "" }
+                            }
+                        }
                     }
 
                     ColumnLayout {
@@ -1003,20 +1237,39 @@ Item {
                     Layout.fillWidth: true; Layout.fillHeight: true
                     clip: true
                     spacing: 2
-                    model: root.historyRows
+                    model: root.historyView
                     delegate: Rectangle {
                         id: txRow
                         width: ListView.view.width
                         implicitHeight: txCol.implicitHeight + 12
                         radius: 4
                         readonly property bool open: root.openTx === modelData.txid
+                        readonly property bool header: modelData.kind === "migrationGroup"
                         color: open ? Theme.palette.surface : "transparent"
                         ColumnLayout {
                             id: txCol
                             anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
                             anchors.margins: 6
+                            // A migration row sits under its heading.
+                            anchors.leftMargin: modelData.kind === "migration" ? 30 : 6
                             spacing: 4
                             RowLayout {
+                                objectName: "migrationGroupHeader"
+                                visible: txRow.header
+                                Layout.fillWidth: true
+                                spacing: Theme.spacing.small
+                                LogosText { Layout.preferredWidth: 80; text: "Migration" }
+                                LogosBadge { text: "Orchard to Ironwood"; color: Theme.palette.info }
+                                LogosText { textFormat: Text.PlainText
+                                            text: (modelData.count || 0) + " transactions"
+                                                  + (modelData.pending ? " · " + modelData.pending + " pending" : "")
+                                                  + (modelData.moved ? " · " + root.zecOf(modelData.moved) + " ZEC moved" : "") }
+                                Item { Layout.fillWidth: true }
+                                LogosButton { objectName: "migrationGroupToggle"; text: root.migrationGroupOpen ? "Hide" : "Show"
+                                              onClicked: root.migrationGroupOpen = !root.migrationGroupOpen }
+                            }
+                            RowLayout {
+                                visible: !txRow.header
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing.small
                                 LogosText { Layout.preferredWidth: 80; text: root.kindLabel(modelData.kind) }
@@ -1035,7 +1288,7 @@ Item {
                                               onClicked: root.openTx = (root.openTx === modelData.txid ? "" : modelData.txid) }
                             }
                             GridLayout {
-                                visible: txRow.open
+                                visible: txRow.open && !txRow.header
                                 columns: 2; columnSpacing: 14; rowSpacing: 3
                                 Layout.fillWidth: true
                                 LogosText { text: "Status"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
@@ -1330,7 +1583,7 @@ Item {
         rightActions: [
             LogosButton { objectName: "approveSendButton"; text: "Approve…"; variant: LogosButton.Variant.Primary
                           visible: root.send.state === "previewed"; enabled: root.ttl > 0
-                          onClicked: approveSheet.open() },
+                          onClicked: { root.approveMode = "send"; approveSheet.open() } },
             LogosButton { objectName: "doneSendButton"; text: "Done"; visible: root.sendSettled && !(root.needsMixedPools && root.ownSend)
                           onClicked: root.finishSend() }
         ]
@@ -1345,7 +1598,8 @@ Item {
         onClosed: approvePw.text = ""
         contentItem: ColumnLayout {
             spacing: Theme.spacing.small
-            LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText; text: root.approveSummary() }
+            LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                        text: root.approveMode === "migration" ? root.migrationApproveSummary() : root.approveSummary() }
             LogosTextField {
                 id: approvePw; objectName: "approvePasswordField"; placeholderText: "Wallet password"
                 echoMode: TextInput.Password; Layout.fillWidth: true
@@ -1355,16 +1609,156 @@ Item {
                     function onAccepted() { if (approveConfirm.enabled) approveConfirm.clicked() }
                 }
             }
-            LogosText { visible: root.ttl === 0; color: Theme.palette.error; text: "The preview expired. Cancel and review again." }
+            LogosText { visible: root.approveMode === "send" && root.ttl === 0; color: Theme.palette.error
+                        text: "The preview expired. Cancel and review again." }
             LogosButton {
                 id: approveConfirm
                 objectName: "approveConfirm"
-                text: root.preview && root.preview.shielding ? "Approve and shield" : "Approve and send"
+                text: root.approveMode === "migration" ? "Approve and sign the run"
+                      : (root.preview && root.preview.shielding ? "Approve and shield" : "Approve and send")
                 variant: LogosButton.Variant.Primary
-                enabled: root.ready && approvePw.text !== "" && root.send.state === "previewed" && root.ttl > 0
-                onClicked: { backend.approveSend(approvePw.text); approvePw.text = ""; approveSheet.close() }
+                enabled: root.ready && approvePw.text !== ""
+                         && (root.approveMode === "migration"
+                             ? (!!root.plan && root.plan.crossesNu7 !== true && root.migrationJob === "")
+                             : (root.send.state === "previewed" && root.ttl > 0))
+                onClicked: {
+                    if (root.approveMode === "migration") backend.approveMigration(approvePw.text)
+                    else backend.approveSend(approvePw.text)
+                    approvePw.text = ""
+                    approveSheet.close()
+                }
             }
         }
+    }
+
+    // The review of a migration plan: what moves, what becomes public, how many transactions and
+    // when. Approving signs every transaction of the run at once (ZIP 318).
+    LogosDialog {
+        id: migrationReview
+        objectName: "migrationReviewSheet"
+        title: "Move Orchard funds privately"
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 40, 720)
+        closePolicy: Popup.NoAutoClose
+        contentItem: ScrollView {
+            id: migrationScroll
+            clip: true
+            contentWidth: availableWidth
+            implicitHeight: Math.min(migrationCol.implicitHeight, Math.max(240, root.height - 240))
+            ColumnLayout {
+                id: migrationCol
+                width: migrationScroll.availableWidth
+                spacing: Theme.spacing.small
+
+                LogosText { visible: !root.plan && root.migrationJob === "plan"; color: Theme.palette.textSecondary
+                            text: "Planning the migration…" }
+                ColumnLayout {
+                    visible: !!root.plan
+                    Layout.fillWidth: true
+                    spacing: Theme.spacing.small
+
+                    LogosNotice {
+                        objectName: "migrationPublicNotice"
+                        Layout.fillWidth: true
+                        severity: LogosNotice.Warning
+                        title: "These amounts become public"
+                        message: "ZIP 318 moves Orchard funds as fixed denominations, the same ones every migrating wallet uses: "
+                                 + (root.plan ? (root.plan.amountsMadePublicZec || []).join(", ") : "") + " ZEC. "
+                                 + "Each amount is visible on-chain as it moves; who owns it is not."
+                    }
+                    GridLayout {
+                        columns: 2; columnSpacing: 14; rowSpacing: 3
+                        Layout.fillWidth: true
+                        LogosText { text: "Moves"; color: Theme.palette.textTertiary }
+                        LogosText { objectName: "migrationMoves"; textFormat: Text.PlainText
+                                    text: root.plan ? root.plan.migratingZec + " ZEC into your shielded balance" : "" }
+                        LogosText { visible: root.remainderLine() !== ""; text: "Stays in Orchard"; color: Theme.palette.textTertiary }
+                        LogosText { visible: root.remainderLine() !== ""; Layout.fillWidth: true; wrapMode: Text.Wrap
+                                    textFormat: Text.PlainText; text: root.remainderLine() }
+                        LogosText { text: "Transactions"; color: Theme.palette.textTertiary }
+                        LogosText { objectName: "migrationTransactions"; Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                    text: root.plan ? (root.zatOf(root.plan.preparationTransactions) + " to prepare, then "
+                                                       + root.zatOf(root.plan.transfers) + " transfers: "
+                                                       + (root.zatOf(root.plan.preparationTransactions) + root.zatOf(root.plan.transfers))
+                                                       + " in all") : "" }
+                        LogosText { text: "First transfer"; color: Theme.palette.textTertiary }
+                        LogosText { objectName: "migrationFirst"; textFormat: Text.PlainText
+                                    text: root.plan ? root.whenText(root.plan.firstBroadcast) : "" }
+                        LogosText { text: "Last transfer"; color: Theme.palette.textTertiary }
+                        LogosText { objectName: "migrationLast"; textFormat: Text.PlainText
+                                    text: root.plan ? root.whenText(root.plan.lastBroadcast) : "" }
+                        LogosText { text: "Plan"; color: Theme.palette.textTertiary }
+                        LogosText { textFormat: Text.PlainText; color: Theme.palette.textSecondary
+                                    text: root.plan ? root.shortId(root.plan.digest) + " · valid for about an hour" : "" }
+                    }
+                    LogosNotice {
+                        objectName: "migrationNu7Notice"
+                        Layout.fillWidth: true
+                        severity: LogosNotice.Error
+                        shown: !!root.plan && root.plan.crossesNu7 === true
+                        title: "NU7 activates during this run"
+                        message: "It would still be broadcasting at block " + root.fmtHeight(root.plan ? root.plan.nu7Height : null)
+                                 + ", when NU7 activates, and transactions signed now would not be valid after it. "
+                                 + "Start the migration after the upgrade."
+                    }
+                    LogosText {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        color: Theme.palette.textSecondary
+                        text: "Approving signs every transaction of this run now. The wallet then broadcasts them on schedule, "
+                              + "over Tor, only while it is open and synced. Pause and Cancel stay available."
+                    }
+                    LogosText { text: "Schedule"; font.pixelSize: 15; Layout.topMargin: Theme.spacing.small }
+                    Repeater {
+                        model: root.plan ? (root.plan.schedule || []) : []
+                        LogosText {
+                            textFormat: Text.PlainText
+                            font.pixelSize: 12
+                            color: Theme.palette.textSecondary
+                            text: "#" + (index + 1) + " · " + root.whenText(modelData.broadcastHeight)
+                                  + " · expires at block " + root.fmtHeight(modelData.expiryHeight)
+                        }
+                    }
+                }
+                LogosNotice {
+                    objectName: "migrationReviewError"
+                    Layout.fillWidth: true
+                    severity: LogosNotice.Error
+                    shown: message.length > 0
+                    message: root.migrationError
+                }
+            }
+        }
+        leftActions: [
+            LogosButton { objectName: "dismissMigrationPlanButton"; text: "Cancel"
+                          onClicked: { backend.dismissMigrationPlan(); migrationReview.close() } }
+        ]
+        rightActions: [
+            LogosButton { objectName: "planMigrationAgainButton"; text: "Plan again"
+                          visible: !root.plan && root.migrationJob === ""
+                          enabled: root.ready
+                          onClicked: root.startMigration() },
+            LogosButton { objectName: "approveMigrationButton"; text: root.migrationJob === "approve" ? "Signing…" : "Approve…"
+                          variant: LogosButton.Variant.Primary
+                          visible: !!root.plan
+                          enabled: root.ready && root.migrationJob === "" && !!root.plan && root.plan.crossesNu7 !== true
+                          onClicked: { root.approveMode = "migration"; approveSheet.open() } }
+        ]
+    }
+
+    LogosWarningDialog {
+        id: cancelMigrationSheet
+        objectName: "cancelMigrationSheet"
+        title: "Cancel the migration?"
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 40, 560)
+        message: "Cancelling stops the run, releases the Orchard notes it reserved and deletes its unbroadcast "
+                 + "transactions. Transfers already sent may still confirm. What stays in Orchard can move in a new run."
+        leftActions: [ LogosButton { text: "Keep migrating"; onClicked: cancelMigrationSheet.close() } ]
+        rightActions: [
+            LogosButton { objectName: "confirmCancelMigrationButton"; text: "Cancel migration"
+                          onClicked: { cancelMigrationSheet.close(); backend.cancelMigration() } }
+        ]
     }
 
     // ZIP 315: spending from several pools at once reveals amounts, so it needs consent.

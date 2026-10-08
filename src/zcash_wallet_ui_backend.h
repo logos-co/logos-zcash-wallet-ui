@@ -10,7 +10,8 @@
 #include "logos_ui_plugin_context.h"
 
 // The Zcash wallet's C++ half: every zcash_wallet_backend call is made here; the QML renders.
-// m_readPoll backs up the backend's events; m_jobPoll follows a wallet job, m_sendPoll a send.
+// m_readPoll backs up the backend's events; m_jobPoll follows a wallet job, m_sendPoll a send,
+// m_migrationJobPoll a migration step.
 class ZcashWalletUiBackend : public ZcashWalletUiSimpleSource,
                              public LogosUiPluginContext
 {
@@ -32,6 +33,13 @@ public:
     void approveSend(QString password) override;
     void cancelSend() override;
     void dismissSend() override;
+
+    void planMigration() override;
+    void approveMigration(QString password) override;
+    void pauseMigration() override;
+    void resumeMigration() override;
+    void cancelMigration() override;
+    void dismissMigrationPlan() override;
 
     void newAddress() override;
     QString addressValid(QString text) override;
@@ -64,15 +72,30 @@ private:
     void adoptSend(const QString &id);
     void recoverSend();
     void pollSend();
+    void loadMigration();
+    void applyMigrationEvent(const QString &payload);
+    bool migrationLive() const;
+    bool migrationIdle();
+    void trackMigration(const QString &reply, const QString &kind);
+    void pollMigrationJob();
+    void dropPlan();
     QString qrModulesJson(const QString &text) const;
 
     QTimer m_readPoll;
     QTimer m_jobPoll;
     QTimer m_sendPoll;
+    QTimer m_migrationJobPoll;
     QString m_pendingName;
     QString m_qrShieldedFor;
     QString m_qrTransparentFor;
     QElapsedTimer m_healthReadAge;
+    QString m_migrationJobId;
+    // The plan under review; approval sends these, never anything the view holds.
+    QString m_planId;
+    QString m_planDigest;
+    // migration_status() is read asynchronously, one read at a time.
+    bool m_migrationReading = false;
+    QElapsedTimer m_migrationReadAge;
     // The scanned height the history on screen describes; -1 is "none read".
     qint64 m_historyHeight = -1;
     QElapsedTimer m_historyReadAge;

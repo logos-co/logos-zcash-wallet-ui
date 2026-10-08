@@ -9705,11 +9705,11 @@
         "zcash_wallet_core_module": "zcash_wallet_core_module"
       },
       "locked": {
-        "lastModified": 1791420874,
-        "narHash": "sha256-X1Ka5bV0dqOYnm/zRsZsbdgubG4BZX4yYW0y7zGxKvE=",
+        "lastModified": 1791421017,
+        "narHash": "sha256-9pR5hgRnsQnZ1p3dKWavKfd1cBRy8DEbWDHmVfhXSkU=",
         "owner": "logos-co",
         "repo": "logos-zcash-wallet-backend",
-        "rev": "1df9cfd53f5b0646329c78a713b77aac73dd6fd4",
+        "rev": "7f20a848ad3c009227dda23b753a6dacd1d79930",
         "type": "github"
       },
       "original": {

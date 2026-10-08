@@ -24,6 +24,8 @@ constexpr int kHistoryMinGapMs = 10000;
 constexpr int kPendingHistoryPollMs = 15000;
 // The node module re-checks servers once a minute and says so by event; this poll is the backstop.
 constexpr int kHealthPollMs = 30000;
+// A live migration moves at most every 30 s and says so by event; this read is the backstop.
+constexpr int kMigrationPollMs = 30000;
 
 // Zatoshis arrive as JSON integers today; accept decimal strings too.
 qint64 zat(const QJsonValue &v) { return v.isString() ? v.toString().toLongLong() : v.toInteger(); }
@@ -86,27 +88,15 @@ QJsonObject withZec(QJsonObject b) {
         it.value() = p;
     }
     b.insert("pools", pools);
-    // `shielded` is Ironwood + Sapling once the core reports Orchard apart as orchardToMigrate.
-    // A core without that field still counts Orchard in it, so sum the two pools instead.
-    const bool split = b.contains("orchardToMigrate");
-    qint64 spendable = 0, total = 0;
-    if (split) {
-        const QJsonObject sh = b.value("shielded").toObject();
-        spendable = zat(sh.value("spendable"));
-        total = zat(sh.value("total"));
-    } else {
-        for (const char *pool : {"ironwood", "sapling"}) {
-            const QJsonObject p = pools.value(QLatin1String(pool)).toObject();
-            spendable += zat(p.value("spendable"));
-            total += zat(p.value("total"));
-        }
-    }
+    // `shielded` is the balance Send spends (Ironwood + Sapling); Orchard waits apart to migrate.
+    const QJsonObject sh = b.value("shielded").toObject();
+    const qint64 spendable = zat(sh.value("spendable")), total = zat(sh.value("total"));
     b.insert("spendPool", QJsonObject{{"spendable", spendable}, {"total", total}, {"pending", total - spendable},
                                       {"spendableZec", zec(spendable)}, {"totalZec", zec(total)},
                                       {"pendingZec", zec(total - spendable)}});
-    const QJsonValue m = split ? b.value("orchardToMigrate") : pools.value("orchard").toObject().value("total");
-    const qint64 toMigrate = zat(m.isObject() ? m.toObject().value("total") : m);
-    b.insert("toMigrate", QJsonObject{{"total", toMigrate}, {"totalZec", zec(toMigrate)}});
+    QJsonObject orchard = b.value("orchardToMigrate").toObject();
+    addZec(orchard, {"spendable", "total"});
+    b.insert("orchardToMigrate", orchard);
     b.insert("transparentAddresses", mapObjects(b.value("transparentAddresses").toArray(), {"spendable", "total"}));
     addZec(b, {"total", "shieldingThreshold"});
     return b;
@@ -146,6 +136,23 @@ QJsonObject historyWithZec(QJsonObject h) {
 }
 
 bool liveSend(const QString &state) { return state == "preparing" || state == "previewed" || state == "signing"; }
+
+QJsonObject planWithZec(QJsonObject p) {
+    addZec(p, {"migrating"});
+    QJsonArray amounts;
+    for (const QJsonValue &v : p.value("amountsMadePublic").toArray()) amounts.append(zec(zat(v)));
+    p.insert("amountsMadePublicZec", amounts);
+    return p;
+}
+
+QJsonObject migrationWithZec(QJsonObject m) {
+    m.remove("ok");
+    addZec(m, {"totalInput", "migratable", "migrated"});
+    return m;
+}
+
+// Every approval error but a wrong password reached the wallet thread, which drops the plan.
+bool planConsumed(const QString &error) { return !error.contains(QLatin1String("password"), Qt::CaseInsensitive); }
 }
 
 void ZcashWalletUiBackend::say(const QString &line) {
@@ -181,10 +188,13 @@ void ZcashWalletUiBackend::onContextReady() {
         loadSync();
         loadBalances();
         if (!m_healthReadAge.isValid() || m_healthReadAge.elapsed() >= kHealthPollMs) loadServerHealth();
+        if (migrationLive() && (!m_migrationReadAge.isValid() || m_migrationReadAge.elapsed() >= kMigrationPollMs))
+            loadMigration();
         syncHistoryToHeight();
     });
     QObject::connect(&m_jobPoll, &QTimer::timeout, [this] { pollJob(); });
     QObject::connect(&m_sendPoll, &QTimer::timeout, [this] { pollSend(); });
+    QObject::connect(&m_migrationJobPoll, &QTimer::timeout, [this] { pollMigrationJob(); });
     // Subscribe, then reconcile. Never call out from an event callback: it runs on the IPC
     // read stack and would block the thread delivering its own reply.
     auto &b = modules().zcash_wallet_backend;
@@ -205,7 +215,13 @@ void ZcashWalletUiBackend::onContextReady() {
         });
     });
     b.onJob_finished([this](QString id, QString) {
-        QTimer::singleShot(0, this, [this, id] { if (id == pendingJobId()) pollJob(); });
+        QTimer::singleShot(0, this, [this, id] {
+            if (id == pendingJobId()) pollJob();
+            else if (id == m_migrationJobId) pollMigrationJob();
+        });
+    });
+    b.onMigration_changed([this](QString payload) {
+        QTimer::singleShot(0, this, [this, payload] { applyMigrationEvent(payload); });
     });
     b.onSend_status_changed([this](QString id, QString state) {
         QTimer::singleShot(0, this, [this, id, state] {
@@ -231,6 +247,7 @@ void ZcashWalletUiBackend::refresh() {
     loadBalances();
     loadReceive();
     refreshHistory();
+    loadMigration();
 }
 
 void ZcashWalletUiBackend::loadStatus() {
@@ -255,6 +272,10 @@ void ZcashWalletUiBackend::clearWalletReads() {
     m_historyHeight = -1;
     m_historyHasPending = false;
     m_historyReadAge.invalidate();
+    // A plan lives in the wallet's thread and is gone with it.
+    setMigrationJson({});
+    setMigrationError({});
+    dropPlan();
 }
 
 void ZcashWalletUiBackend::loadRegistry() {
@@ -590,6 +611,126 @@ void ZcashWalletUiBackend::dismissSend() {
     setSendRequestId({});
     setSendStatusJson(QStringLiteral("{}"));
     setSendError({});
+}
+
+// ---- the ZIP 318 migration -----------------------------------------------------------------
+
+bool ZcashWalletUiBackend::migrationLive() const {
+    const QString s = parse(migrationJson()).value("status").toString();
+    return s == "planning" || s == "committed" || s == "in_progress";
+}
+
+// Asynchronous: migration_status() waits on the wallet thread, which may be scanning or proving.
+void ZcashWalletUiBackend::loadMigration() {
+    if (!walletOpen()) { setMigrationJson({}); return; }
+    // One read at a time; a callback lost for 30 s no longer blocks the next.
+    if (m_migrationReading && m_migrationReadAge.isValid() && m_migrationReadAge.elapsed() < kMigrationPollMs) return;
+    m_migrationReading = true;
+    m_migrationReadAge.restart();
+    const QString wallet = parse(statusJson()).value("name").toString();
+    modules().zcash_wallet_backend.migration_statusAsync([this, wallet](QString r) {
+        QTimer::singleShot(0, this, [this, wallet, r] {
+            m_migrationReading = false;
+            const QJsonObject o = parse(r);
+            // A busy wallet keeps the last answer on screen; another wallet's answer is dropped.
+            if (o.value("ok").toBool() && walletOpen() && parse(statusJson()).value("name").toString() == wallet)
+                setMigrationJson(compact(migrationWithZec(o)));
+        });
+    });
+}
+
+// The payload is migration_status()'s shape, or only { needsApproval }: merged over the last
+// read. paused and needsApproval come only with a full read, so one follows.
+void ZcashWalletUiBackend::applyMigrationEvent(const QString &payload) {
+    const QJsonObject ev = parse(payload);
+    if (ev.isEmpty() || !walletOpen()) return;
+    QJsonObject cur = parse(migrationJson());
+    for (auto it = ev.constBegin(); it != ev.constEnd(); ++it) cur.insert(it.key(), it.value());
+    setMigrationJson(compact(migrationWithZec(cur)));
+    if (ev.contains("status")) loadMigration();
+}
+
+void ZcashWalletUiBackend::trackMigration(const QString &reply, const QString &kind) {
+    const QJsonObject o = parse(reply);
+    const QString id = o.value("jobId").toString();
+    if (!o.value("ok").toBool() || id.isEmpty()) {
+        setMigrationError(o.value("error").toString(QStringLiteral("the wallet backend did not answer")));
+        return;
+    }
+    m_migrationJobId = id;
+    setMigrationJobKind(kind);
+    m_migrationJobPoll.start(kJobPollMs);
+}
+
+void ZcashWalletUiBackend::pollMigrationJob() {
+    if (m_migrationJobId.isEmpty()) { m_migrationJobPoll.stop(); setMigrationJobKind({}); return; }
+    const QString r = modules().zcash_wallet_backend.job_status(m_migrationJobId);
+    if (r.isEmpty()) return;  // the call itself failed; ask again on the next tick
+    const QJsonObject st = parse(r);
+    const QString state = st.value("ok").toBool() ? st.value("state").toString() : QStringLiteral("failed");
+    if (state != "done" && state != "failed" && state != "cancelled") return;
+    m_migrationJobPoll.stop();
+    const QString kind = migrationJobKind();
+    m_migrationJobId.clear();
+    setMigrationJobKind({});
+    if (state != "done") {
+        const QString error = st.value("error").toString(state);
+        setMigrationError(error);
+        if (kind == "approve" && planConsumed(error)) dropPlan();
+    } else if (kind == "plan") {
+        const QJsonObject result = st.value("result").toObject();
+        const QJsonObject preview = result.value("preview").toObject();
+        m_planId = result.value("planId").toString();
+        m_planDigest = preview.value("digest").toString();
+        setMigrationPlanJson(compact(planWithZec(preview)));
+    } else if (kind == "approve") {
+        dropPlan();
+    }
+    loadMigration();
+    loadBalances();
+}
+
+void ZcashWalletUiBackend::dropPlan() {
+    m_planId.clear();
+    m_planDigest.clear();
+    setMigrationPlanJson({});
+}
+
+// The core runs one migration step at a time; a second would race the first.
+bool ZcashWalletUiBackend::migrationIdle() {
+    setMigrationError({});
+    if (m_migrationJobId.isEmpty()) return true;
+    setMigrationError(QStringLiteral("A migration step is still running."));
+    return false;
+}
+
+void ZcashWalletUiBackend::planMigration() {
+    if (!migrationIdle()) return;
+    dropPlan();
+    trackMigration(modules().zcash_wallet_backend.prepare_migration(), "plan");
+}
+
+void ZcashWalletUiBackend::approveMigration(QString password) {
+    if (!migrationIdle()) return;
+    if (m_planId.isEmpty()) { setMigrationError(QStringLiteral("There is no plan to approve: plan the migration again.")); return; }
+    trackMigration(modules().zcash_wallet_backend.approve_migration(m_planId, m_planDigest, password), "approve");
+}
+
+void ZcashWalletUiBackend::pauseMigration() {
+    if (migrationIdle()) trackMigration(modules().zcash_wallet_backend.pause_migration(), "pause");
+}
+
+void ZcashWalletUiBackend::resumeMigration() {
+    if (migrationIdle()) trackMigration(modules().zcash_wallet_backend.resume_migration(), "resume");
+}
+
+void ZcashWalletUiBackend::cancelMigration() {
+    if (migrationIdle()) trackMigration(modules().zcash_wallet_backend.cancel_migration(), "cancel");
+}
+
+void ZcashWalletUiBackend::dismissMigrationPlan() {
+    dropPlan();
+    setMigrationError({});
 }
 
 // ---- receiving and network -----------------------------------------------------------------
