@@ -283,7 +283,13 @@ void ZcashWalletUiBackend::loadReceive() {
 
 void ZcashWalletUiBackend::loadServers() {
     const QString r = modules().zcash_wallet_backend.servers();
-    setServersJson(ok(r, "servers") ? stripOk(r) : QString());
+    if (!ok(r, "servers")) { setServersJson({}); return; }
+    QJsonObject o = parse(r);
+    o.remove("ok");
+    // servers() does not carry the proxy; show the one this session saved until it does.
+    const QString saved = m_proxySaved.value(o.value("network").toString());
+    if (!o.contains("proxy") && !saved.isEmpty()) o.insert("proxy", saved);
+    setServersJson(compact(o));
 }
 
 // On the read poll, so quiet: the health reply describes its own failures.
@@ -583,5 +589,11 @@ void ZcashWalletUiBackend::applyPreset(QString name) {
 void ZcashWalletUiBackend::setProxy(QString proxy) {
     setLastError({});
     const QJsonObject cfg{{"proxy", proxy.trimmed()}, {"proxyRequired", true}};
-    if (ok(modules().zcash_wallet_backend.set_proxy(compact(cfg)), "proxy")) { loadServers(); loadServerHealth(); }
+    const QString r = modules().zcash_wallet_backend.set_proxy(compact(cfg));
+    if (!ok(r, "proxy")) return;
+    // The node module answers with the proxy as it stored it, normalized.
+    const QJsonObject o = parse(r);
+    m_proxySaved.insert(o.value("network").toString(), o.value("proxy").toString());
+    loadServers();
+    loadServerHealth();
 }

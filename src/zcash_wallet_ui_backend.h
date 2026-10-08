@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QElapsedTimer>
+#include <QHash>
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
@@ -71,6 +72,8 @@ private:
     QString m_pendingName;
     QString m_qrShieldedFor;
     QString m_qrTransparentFor;
+    // Per network, as set_proxy answered it.
+    QHash<QString, QString> m_proxySaved;
     // The scanned height the history on screen describes; -1 is "none read".
     qint64 m_historyHeight = -1;
     QElapsedTimer m_historyReadAge;
