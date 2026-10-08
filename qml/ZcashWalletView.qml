@@ -217,9 +217,17 @@ Item {
         }
         if (lastJob.state !== "done") return
         if (lastJob.kind === "create" || lastJob.kind === "restore") {
-            root.notify(lastJob.kind === "create" ? "Wallet created" : "Wallet restored", "Enter its password to open it.")
-            openNameField.text = lastJob.name || ""
-            openWalletSheet.open()
+            var created = lastJob.kind === "create"
+            if (root.walletOpen) {
+                root.notify(created ? "Wallet created" : "Wallet restored",
+                            created ? "Write down its recovery phrase: Settings, Show recovery phrase."
+                                    : "Its balance fills in as it scans.")
+            } else {
+                // A wallet core that does not open what it creates.
+                root.notify(created ? "Wallet created" : "Wallet restored", "Enter its password to open it.")
+                openNameField.text = lastJob.name || ""
+                openWalletSheet.open()
+            }
         } else if (lastJob.kind === "change password") {
             root.notify("Password changed", "")
         }

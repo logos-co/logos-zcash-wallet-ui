@@ -17,7 +17,7 @@ project_name: logos-zcash-wallet-ui
 intro: |
   The whole wallet in one headless run, in Basecamp, against the real backend, wallet core and
   node module: a regtest chain is mined with the test phrase's coins on it, the app is pointed
-  at its two servers, the wallet is restored from the phrase, and then each flow that moves
+  at its two servers, the wallet is restored from the phrase and opens, and then each flow that moves
   money runs through the app itself: shielding the transparent coinbase, a send, and the
   ZIP 318 migration of the Orchard coinbase. Every approval types the password into the only
   surface that takes one.
@@ -198,31 +198,17 @@ sections:
             - name: "Restore"
               action: click_object
               find_value: "restoreButton"
-            - name: "Restored: the Open sheet comes up with the wallet's name"
-              action: expect_property
-              find_value: "openWalletSheet"
-              property: "visible"
-              value: true
-              timeout: 60000
-            - name: "...filled in"
-              action: expect_property
-              find_value: "openNameField"
-              property: "text"
-              value: "doctest"
-            - name: "Type the password to open it"
-              action: set_text
-              find_by: "objectName"
-              find_value: "openPasswordField"
-              value: "doctest-pw"
-            - name: "Open"
-              action: click_object
-              find_value: "openButton"
-            - name: "The wallet is open"
+            - name: "Restoring opens the wallet"
               action: expect_property
               find_value: "zcashWalletRoot"
               property: "walletOpen"
               value: true
               timeout: 60000
+            - name: "...without asking for the password again"
+              action: expect_property
+              find_value: "openWalletSheet"
+              property: "visible"
+              value: false
             - name: "...on regtest"
               action: expect_property
               find_value: "statusLine"
