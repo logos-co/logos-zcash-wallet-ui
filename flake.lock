@@ -9818,11 +9818,11 @@
         "zcash_wallet_core_module": "zcash_wallet_core_module"
       },
       "locked": {
-        "lastModified": 1791480402,
-        "narHash": "sha256-tP94cqBxiEqkXyxscAhiZ2JC3jYQjMombliZEFxQ4jo=",
+        "lastModified": 1791485937,
+        "narHash": "sha256-A8d7rWtDsMV055IrU3wU0nAHd77xsD3BNBV5t13y50U=",
         "owner": "logos-co",
         "repo": "logos-zcash-wallet-backend",
-        "rev": "8ca06a99c8d4105bdf4dd65ee8431cbecbc42c7a",
+        "rev": "b3a2707cf63d52348c3087df828bda7cceccc1f8",
         "type": "github"
       },
       "original": {
