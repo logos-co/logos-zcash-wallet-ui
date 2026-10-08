@@ -84,6 +84,21 @@ Item {
     readonly property var serverList: Array.isArray(serversInfo.servers) ? serversInfo.servers : []
     readonly property var health: ready ? j(backend.serverHealthJson, "{}") : ({})
     readonly property string overall: health.overall || ""
+    readonly property bool serversRead: ready && backend.serversJson !== ""
+    readonly property bool localNodeOn: serversInfo.localNode === true
+    // local_node() for the active network; {} until read, or when it answered for another one.
+    readonly property var localNode: {
+        var l = ready ? j(backend.localNodeJson, "{}") : ({})
+        return root.activeNetwork !== "" && l.network === root.activeNetwork ? l : ({})
+    }
+    readonly property var localStatus: localNode.status || null
+    // As the node module decides: with no enabled server taking broadcasts, the node sends them.
+    readonly property bool broadcastServer: serverList.some(function (s) {
+        return s.enabled === true && (!Array.isArray(s.classes) || s.classes.indexOf("broadcast") >= 0)
+    })
+    property string localNodeNote: ""
+    readonly property bool localNodeAvailable: localNode.available === true
+    onLocalNodeAvailableChanged: if (localNodeAvailable) localNodeNote = ""
     readonly property string activeNetwork: ready ? (networks.active || "") : ""
     readonly property string displayedNetwork: walletOpen ? (status.network || activeNetwork) : activeNetwork
     readonly property var walletsOnNetwork: wallets.filter(function (w) { return !w.network || w.network === root.activeNetwork })
@@ -381,7 +396,7 @@ Item {
             return "Scanning · block " + root.fmtHeight(root.sync.fullyScanned) + " of " + root.fmtHeight(root.sync.tip)
                    + " (" + Math.floor(root.syncFraction() * 100) + "%)" + (eta ? " · " + eta : "")
         }
-        if (s === "starting" || s === "connecting") return "Connecting to servers…"
+        if (s === "starting" || s === "connecting") return root.localNodeOn ? "Connecting to your node…" : "Connecting to servers…"
         return "Sync: " + s
     }
     function syncChip() {
@@ -432,6 +447,45 @@ Item {
                + (h.height ? " · block " + root.fmtHeight(h.height) : "")
                + (h.lastError ? " · " + h.lastError : "")
                + (h.suspect ? " · suspect" : "")
+    }
+    function gauge(v) { return v === undefined || v === null || v < 0 ? "—" : root.fmtHeight(v) }
+    // Regtest's tip estimate runs millions of blocks ahead (its blocks carry 2011 timestamps), so it is left out.
+    function localNodeLine() {
+        var l = root.localNode
+        if (l.network === undefined) return "Checking your node…"
+        if (!l.status) return "Not installed"
+        if (l.available !== true) return "Not running for this network"
+        return "Running · height " + root.gauge(l.status.height)
+               + (root.activeNetwork === "regtest" ? "" : " of " + root.gauge(l.status.estimatedHeight))
+               + " · " + root.gauge(l.status.peers) + (l.status.peers === 1 ? " peer" : " peers")
+    }
+    function localNodeDetail() {
+        var l = root.localNode, s = l.status
+        if (l.network === undefined) return ""
+        if (!s) return (l.error ? l.error + ". " : "") + "The Zcash Node app installs and runs it."
+        var st = s.state || "unknown"
+        if (l.available !== true) {
+            if (st === "running") return "It is running " + (s.network || "another network") + "; this wallet is on " + root.activeNetwork + "."
+            if (st === "failed") return "It failed" + (s.lastError ? ": " + s.lastError : ".")
+            return "It is " + st + ". Start it for " + root.activeNetwork + " in the Zcash Node app."
+        }
+        return root.activeNetwork !== "regtest" && Number(s.estimatedHeight) - Number(s.height) > 10
+               ? "Still syncing: the wallet sees the chain only as far as your node has it." : ""
+    }
+    function setLocalNode(on) {
+        root.localNodeNote = ""
+        logos.watch(backend.setLocalNode(on),
+                    function (e) { root.localNodeNote = e || "" },
+                    function () { root.localNodeNote = "The wallet backend did not answer." })
+    }
+    // The node has its own app.
+    function manageLocalNode() {
+        root.localNodeNote = ""
+        logos.request("zcash.node.configure", ({ network: root.activeNetwork }), function (res) {
+            if (res.ok || res.error === "cancelled") return
+            root.localNodeNote = res.error === "unavailable" ? "The Zcash Node app is not installed."
+                                                              : "That request did not go through (" + res.error + ")."
+        })
     }
     function shieldedCaption() {
         if (!root.balancesRead) return ""
@@ -585,7 +639,8 @@ Item {
 
             LogosText { text: "Network privacy"; font.pixelSize: 15 }
             LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
-                        text: "Every connection goes through this Tor proxy. The wallet never connects without it." }
+                        text: root.localNodeOn ? "Every connection to a server goes through this Tor proxy. Your node's own peer connections do not."
+                                               : "Every connection goes through this Tor proxy. The wallet never connects without it." }
             RowLayout {
                 Layout.fillWidth: true
                 LogosTextField { id: proxyField; objectName: "proxyField"; Layout.fillWidth: true
@@ -594,6 +649,78 @@ Item {
                     objectName: "saveProxyButton"; text: "Save proxy"
                     enabled: root.ready && proxyField.text.trim() !== "" && proxyField.text.trim() !== (root.serversInfo.proxy || "")
                     onClicked: backend.setProxy(proxyField.text.trim())
+                }
+            }
+
+            ColumnLayout {
+                id: localNodePane
+                objectName: "localNodePane"
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacing.small
+                spacing: Theme.spacing.small
+                // Read while on screen only: an absent zebrad_module costs the node module 1.5 s a read.
+                onVisibleChanged: if (visible && root.ready) backend.refreshLocalNode()
+                Component.onCompleted: if (visible && root.ready) backend.refreshLocalNode()
+                Timer {
+                    interval: root.localStatus ? 3000 : 15000
+                    repeat: true
+                    running: localNodePane.visible && root.ready
+                    onTriggered: backend.refreshLocalNode()
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    LogosText { text: "Your node"; font.pixelSize: 15 }
+                    Item { Layout.fillWidth: true }
+                    // Shows what the node module stores: a click asks, and its answer moves the switch.
+                    LogosSwitch {
+                        objectName: "localNodeSwitch"
+                        text: "Use my local node"
+                        checkable: false
+                        checked: root.localNodeOn
+                        enabled: root.ready && (root.localNodeOn || root.localNodeAvailable)
+                        onClicked: root.setLocalNode(!root.localNodeOn)
+                    }
+                }
+                LogosText {
+                    Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
+                    text: "Reads come from your own Zcash node over Logos IPC, so no server sees them. Transactions you send "
+                          + "still go to the servers below, over Tor. With no server enabled, your node broadcasts them itself, "
+                          + "over its own peer connections and without Tor. A change applies the next time a wallet opens."
+                }
+                LogosText {
+                    objectName: "localNodeState"
+                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.tiny; textFormat: Text.PlainText; wrapMode: Text.Wrap
+                    font.weight: Theme.typography.weightMedium
+                    color: root.localNodeAvailable ? Theme.palette.success : Theme.palette.text
+                    text: root.localNodeLine()
+                }
+                LogosText {
+                    objectName: "localNodeDetail"
+                    Layout.fillWidth: true; visible: text !== ""; textFormat: Text.PlainText; wrapMode: Text.Wrap
+                    color: Theme.palette.textSecondary
+                    text: root.localNodeDetail()
+                }
+                LogosNotice {
+                    objectName: "localNodeDownNotice"
+                    Layout.fillWidth: true
+                    severity: LogosNotice.Warning
+                    shown: root.localNodeOn && root.localNode.network !== undefined && !root.localNodeAvailable
+                    message: "Reads go to your node, which is not running for " + root.activeNetwork + ". The wallet cannot sync until it is."
+                }
+                LogosNotice {
+                    objectName: "localNodeBroadcastNotice"
+                    Layout.fillWidth: true
+                    severity: LogosNotice.Warning
+                    shown: root.localNodeOn && root.serversRead && !root.broadcastServer
+                    message: "No server is enabled, so your node sends your transactions itself, without Tor: "
+                             + "its peers see them come from this computer's IP address."
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    LogosButton { objectName: "manageLocalNodeButton"; text: "Manage local node…"; enabled: root.ready; onClicked: root.manageLocalNode() }
+                    LogosText { objectName: "localNodeNote"; visible: text !== ""; Layout.fillWidth: true; textFormat: Text.PlainText
+                                wrapMode: Text.Wrap; color: Theme.palette.error; text: root.localNodeNote }
                 }
             }
 
@@ -616,7 +743,9 @@ Item {
                 }
             }
             LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textTertiary
-                        text: "Two operators check each other's answers. A change applies the next time a wallet opens." }
+                        text: (root.localNodeOn ? "Your node answers every read; these servers only receive the transactions you send. "
+                                                : "Two operators check each other's answers. ")
+                              + "A change applies the next time a wallet opens." }
             LogosText { visible: root.serverList.length === 0; color: Theme.palette.textSecondary
                         text: "No server list yet." }
             Repeater {
@@ -629,7 +758,7 @@ Item {
                             Layout.fillWidth: true
                             LogosText { textFormat: Text.PlainText; text: modelData.label || modelData.id || "" }
                             LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary; text: modelData.operator || "" }
-                            LogosBadge { text: modelData.enabled ? "In use" : "Standby"
+                            LogosBadge { text: modelData.enabled ? (root.localNodeOn ? "Broadcasts" : "In use") : "Standby"
                                          color: modelData.enabled ? Theme.palette.success : Theme.palette.textTertiary }
                             Item { Layout.fillWidth: true }
                             LogosText { textFormat: Text.PlainText; font.pixelSize: 12; color: Theme.palette.textSecondary

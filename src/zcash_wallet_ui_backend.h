@@ -47,6 +47,8 @@ public:
     void showHistoryPage(int page) override;
     void applyPreset(QString name) override;
     void setProxy(QString proxy) override;
+    QString setLocalNode(bool enabled) override;
+    void refreshLocalNode() override;
 
 protected:
     void onContextReady() override;
@@ -100,4 +102,7 @@ private:
     qint64 m_historyHeight = -1;
     QElapsedTimer m_historyReadAge;
     bool m_historyHasPending = false;
+    // local_node() is read asynchronously, one read at a time.
+    bool m_localNodeReading = false;
+    QElapsedTimer m_localNodeReadAge;
 };

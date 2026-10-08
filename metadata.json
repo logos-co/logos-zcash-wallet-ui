@@ -5,7 +5,7 @@
   "type": "ui_qml",
   "interface": "universal",
   "category": "wallet",
-  "description": "The Zcash wallet: shielded and transparent balances, sends reviewed and approved with the password, shielding one transparent address at a time, receive addresses with a QR, history, and the wallet management (create, restore, open, close, change password, recovery phrase, viewing key, servers and proxy). Passwords and keys cross as SLOT arguments and return values only, never as properties.",
+  "description": "The Zcash wallet: shielded and transparent balances, sends reviewed and approved with the password, shielding one transparent address at a time, receive addresses with a QR, history, and the wallet management (create, restore, open, close, change password, recovery phrase, viewing key, servers, proxy, and reading from a local node). Passwords and keys cross as SLOT arguments and return values only, never as properties.",
   "author": "Logos Core Team",
   "main": "zcash_wallet_ui_plugin",
   "icon": "src/icons/zcash_wallet.png",
@@ -28,6 +28,12 @@
     {
       "intent": "zcash.accounts.manage",
       "handoff": true
+    }
+  ],
+  "uses": [
+    {
+      "intent": "zcash.node.configure",
+      "cardinality": "single"
     }
   ],
   "codegen": {
