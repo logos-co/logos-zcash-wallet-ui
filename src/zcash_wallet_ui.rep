@@ -18,7 +18,8 @@ class ZcashWalletUi
     PROP(QString networksJson="{}" READONLY)
     // [{ name, network, birthdayHeight, createdAt }] on the active network.
     PROP(QString walletsJson="[]" READONLY)
-    // balances() in zatoshis, plus ...Zec display strings and spendPool (Ironwood + Sapling).
+    // balances() in zatoshis, plus ...Zec display strings, spendPool (the shielded balance Send
+    // spends: Ironwood + Sapling) and toMigrate (Orchard funds to migrate).
     PROP(QString balancesJson="" READONLY)
     // receive_info(): { unified, transparent }
     PROP(QString receiveJson="" READONLY)
@@ -63,6 +64,8 @@ class ZcashWalletUi
 
     // ---- receiving, history and network ----
     SLOT(void newAddress())
+    // address_valid(): { ok, valid, kind, shielded, receivers? } or { ok, valid: false, reason }.
+    SLOT(QString addressValid(QString text))
     SLOT(void refreshHistory())
     SLOT(void showHistoryPage(int page))
     SLOT(void applyPreset(QString name))

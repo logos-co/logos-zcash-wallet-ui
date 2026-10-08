@@ -74,7 +74,7 @@ Item {
     readonly property var spendPool: balancesReady ? (balances.spendPool || {}) : ({})
     readonly property var transparentPool: balancesReady ? ((balances.pools || {}).transparent || {}) : ({})
     readonly property var transparentAddresses: balancesReady && Array.isArray(balances.transparentAddresses) ? balances.transparentAddresses : []
-    readonly property var orchardPool: balancesReady ? ((balances.pools || {}).orchard || {}) : ({})
+    readonly property var toMigrate: balancesReady ? (balances.toMigrate || {}) : ({})
     // ZIP 315's un-economic balance: below this, shielding costs more than it moves.
     readonly property real shieldThreshold: balancesReady && balances.shieldingThreshold !== undefined ? zatOf(balances.shieldingThreshold) : 100000
     readonly property bool receiveRead: ready && backend.receiveJson !== ""
@@ -124,12 +124,15 @@ Item {
 
     // ---- the Send form ----
     readonly property bool sendIsUri: sendTo.text.trim().toLowerCase().indexOf("zcash:") === 0
-    readonly property string recipientKind: sendIsUri ? "payment request" : root.addressKind(sendTo.text)
+    // address_valid()'s answer for `text`; a reply for older text is dropped.
+    property var recipientCheck: ({})
+    readonly property bool recipientChecked: recipientCheck.text !== undefined && recipientCheck.text === sendTo.text.trim()
+    readonly property string recipientKind: sendIsUri ? "payment request" : root.kindOf(recipientChecked ? recipientCheck : null)
     // ZIP 302: memos go to shielded recipients only.
     readonly property bool memoAllowed: recipientKind === "" || recipientKind === "shielded"
     readonly property int memoBytes: utf8Bytes(sendMemo.text)
     readonly property bool canReview: ready && walletOpen && !sendLive && send.state !== "unknown" && sendTo.text.trim() !== ""
-                                      && recipientKind !== "other network"
+                                      && (sendIsUri || (recipientChecked && (recipientCheck.valid === true || recipientCheck.failed === true)))
                                       && (sendIsUri || (sendAmount.text !== "" && sendAmount.text !== "." && zatOfZec(sendAmount.text) > 0))
                                       && (!memoAllowed || memoBytes <= 512)
 
@@ -184,6 +187,9 @@ Item {
         root.hideSecret()
         root.closeSheets()
         root.openTx = ""
+        // A check answers for one network; the next wallet may be on the other.
+        root.recipientCheck = ({})
+        if (sendTo.text.trim() !== "") recipientCheckTimer.restart()
         if (root.walletOpen) root.selectTab(0)
     }
     onPageChanged: if (root.page !== 4) root.hideSecret()
@@ -254,18 +260,25 @@ Item {
         return p || ""
     }
 
-    // The address kind as typed. Prefixes only: the backend has no address validator yet.
-    function addressKind(a) {
-        var t = (a || "").trim().toLowerCase()
-        if (t === "") return ""
-        var test = root.displayedNetwork === "testnet"
-        function starts(list) { return list.some(function (p) { return t.indexOf(p) === 0 }) }
-        if (starts(test ? ["utest1", "ztestsapling1"] : ["u1", "zs1"])) return "shielded"
-        if (starts(test ? ["textest1"] : ["tex1"])) return "tex"
-        if (starts(test ? ["tm", "t2"] : ["t1", "t3"])) return "transparent"
-        if (starts(test ? ["u1", "zs1", "tex1", "t1", "t3"] : ["utest1", "ztestsapling1", "textest1", "tm", "t2"]))
-            return "other network"
-        return "unknown"
+    // The badge for an address check. An unanswered check names nothing; the backend
+    // validates again when the send is prepared.
+    function kindOf(c) {
+        if (!c || c.failed) return ""
+        if (c.valid !== true) return c.reason === "this address is for another network" ? "other network" : "not an address"
+        if (c.shielded === true) return "shielded"
+        return c.kind === "tex" ? "tex" : "transparent"
+    }
+    function checkRecipient() {
+        var t = sendTo.text.trim()
+        if (t === "" || root.sendIsUri || !root.ready) return
+        logos.watch(backend.addressValid(t),
+                    function (v) {
+                        var r = root.j(v, "{}")
+                        if (r.ok !== true) r = { failed: true }
+                        r.text = t
+                        root.recipientCheck = r
+                    },
+                    function () { root.recipientCheck = { text: t, failed: true } })
     }
 
     // Restore starts from a height: a block number, or a month (mainnet) less two weeks' margin.
@@ -295,18 +308,31 @@ Item {
         return "Scanning starts at block " + root.fmtHeight(h) + "."
     }
 
+    // Blocks left, when the core reports them: scanning is not in height order.
     function syncFraction() {
         var tip = root.sync.tip, done = root.sync.fullyScanned, from = root.sync.birthday || 0
-        if (!tip || done === undefined || done === null || tip <= from) return 0
+        if (!tip || tip <= from) return 0
+        var left = root.sync.blocksLeft
+        if (left !== undefined && left !== null) return Math.max(0, Math.min(1, 1 - left / (tip - from + 1)))
+        if (done === undefined || done === null) return 0
         return Math.max(0, Math.min(1, (done - from) / (tip - from)))
+    }
+    function etaText(secs) {
+        if (secs === undefined || secs === null) return ""
+        if (secs < 60) return "under a minute left"
+        var min = Math.round(secs / 60)
+        if (min < 60) return "about " + min + " min left"
+        return "about " + Math.floor(min / 60) + " h " + (min % 60) + " min left"
     }
     function syncLine() {
         if (!root.syncRead) return "Sync: —"
         var s = root.sync.state || ""
         if (s === "synced") return "Synced to block " + root.fmtHeight(root.sync.tip)
-        if (s === "scanning" || s === "downloading")
+        if (s === "scanning" || s === "downloading") {
+            var eta = root.etaText(root.sync.etaSecs)
             return "Scanning · block " + root.fmtHeight(root.sync.fullyScanned) + " of " + root.fmtHeight(root.sync.tip)
-                   + " (" + Math.floor(root.syncFraction() * 100) + "%)"
+                   + " (" + Math.floor(root.syncFraction() * 100) + "%)" + (eta ? " · " + eta : "")
+        }
         if (s === "starting" || s === "connecting") return "Connecting to servers…"
         return "Sync: " + s
     }
@@ -731,11 +757,11 @@ Item {
                     LogosNotice {
                         objectName: "orchardRow"
                         Layout.fillWidth: true
-                        shown: root.balancesReady && root.zatOf(root.orchardPool.total) > 0
+                        shown: root.balancesReady && root.zatOf(root.toMigrate.total) > 0
                         severity: LogosNotice.Warning
                         title: "Orchard funds need moving"
                         message: root.balancesReady
-                                 ? ((root.orchardPool.totalZec || "0") + " ZEC is in Orchard, which has been spend-only since NU6.3. "
+                                 ? ((root.toMigrate.totalZec || "0") + " ZEC is in Orchard, which has been spend-only since NU6.3. "
                                     + "Moving it privately follows the ZIP 318 schedule into your shielded balance.")
                                  : ""
                         actions: [
@@ -805,13 +831,17 @@ Item {
                             Layout.fillWidth: true
                             enabled: !root.sendLive
                             placeholderText: "Shielded, transparent or TEX address, or a zcash: payment request"
+                            onTextChanged: recipientCheckTimer.restart()
                         }
+                        // Checked once typing pauses, not on every keystroke.
+                        Timer { id: recipientCheckTimer; interval: 300; onTriggered: root.checkRecipient() }
                         LogosBadge {
                             objectName: "recipientKindBadge"
                             visible: root.recipientKind !== ""
                             text: root.recipientKind
                             color: root.recipientKind === "shielded" ? Theme.palette.success
-                                   : (root.recipientKind === "other network" ? Theme.palette.error : Theme.palette.warning)
+                                   : (root.recipientKind === "other network" || root.recipientKind === "not an address"
+                                      ? Theme.palette.error : Theme.palette.warning)
                         }
                     }
                     LogosText {
@@ -822,9 +852,10 @@ Item {
                               : "The amount sent to a transparent address is public."
                     }
                     LogosText {
-                        visible: root.recipientKind === "other network"
+                        visible: root.recipientKind === "other network" || root.recipientKind === "not an address"
                         color: Theme.palette.error
-                        text: "This address is for another network."
+                        text: root.recipientKind === "other network" ? "This address is for another network."
+                                                                     : "This is not a Zcash address."
                     }
                     LogosText { visible: !root.sendIsUri; text: "Amount (ZEC)"; color: Theme.palette.textSecondary }
                     LogosTextField {
@@ -928,7 +959,7 @@ Item {
                             LogosInfoButton {
                                 title: "Transparent address"
                                 text: "Sender, receiver and amount are all public, as in Bitcoin. Use it only for payers "
-                                      + "that cannot pay a shielded address."
+                                      + "that cannot pay a shielded address. Once it has been paid, a new address replaces it."
                             }
                         }
                         LogosText { objectName: "transparentExplainer"; Layout.fillWidth: true; wrapMode: Text.Wrap

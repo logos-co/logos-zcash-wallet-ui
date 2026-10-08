@@ -22,6 +22,8 @@ constexpr int kJobPollMs = 750;
 constexpr int kSendPollMs = 700;
 constexpr int kHistoryMinGapMs = 10000;
 constexpr int kPendingHistoryPollMs = 15000;
+// The node module re-checks servers once a minute and says so by event; this poll is the backstop.
+constexpr int kHealthPollMs = 30000;
 
 // Zatoshis arrive as JSON integers today; accept decimal strings too.
 qint64 zat(const QJsonValue &v) { return v.isString() ? v.toString().toLongLong() : v.toInteger(); }
@@ -84,16 +86,27 @@ QJsonObject withZec(QJsonObject b) {
         it.value() = p;
     }
     b.insert("pools", pools);
-    // Ironwood + Sapling: the balance Send spends. The backend's `shielded` also counts Orchard.
+    // `shielded` is Ironwood + Sapling once the core reports Orchard apart as orchardToMigrate.
+    // A core without that field still counts Orchard in it, so sum the two pools instead.
+    const bool split = b.contains("orchardToMigrate");
     qint64 spendable = 0, total = 0;
-    for (const char *pool : {"ironwood", "sapling"}) {
-        const QJsonObject p = pools.value(QLatin1String(pool)).toObject();
-        spendable += zat(p.value("spendable"));
-        total += zat(p.value("total"));
+    if (split) {
+        const QJsonObject sh = b.value("shielded").toObject();
+        spendable = zat(sh.value("spendable"));
+        total = zat(sh.value("total"));
+    } else {
+        for (const char *pool : {"ironwood", "sapling"}) {
+            const QJsonObject p = pools.value(QLatin1String(pool)).toObject();
+            spendable += zat(p.value("spendable"));
+            total += zat(p.value("total"));
+        }
     }
     b.insert("spendPool", QJsonObject{{"spendable", spendable}, {"total", total}, {"pending", total - spendable},
                                       {"spendableZec", zec(spendable)}, {"totalZec", zec(total)},
                                       {"pendingZec", zec(total - spendable)}});
+    const QJsonValue m = split ? b.value("orchardToMigrate") : pools.value("orchard").toObject().value("total");
+    const qint64 toMigrate = zat(m.isObject() ? m.toObject().value("total") : m);
+    b.insert("toMigrate", QJsonObject{{"total", toMigrate}, {"totalZec", zec(toMigrate)}});
     b.insert("transparentAddresses", mapObjects(b.value("transparentAddresses").toArray(), {"spendable", "total"}));
     addZec(b, {"total", "shieldingThreshold"});
     return b;
@@ -167,7 +180,7 @@ void ZcashWalletUiBackend::onContextReady() {
         if (!wasOpen && walletOpen()) loadReceive();
         loadSync();
         loadBalances();
-        loadServerHealth();
+        if (!m_healthReadAge.isValid() || m_healthReadAge.elapsed() >= kHealthPollMs) loadServerHealth();
         syncHistoryToHeight();
     });
     QObject::connect(&m_jobPoll, &QTimer::timeout, [this] { pollJob(); });
@@ -177,10 +190,20 @@ void ZcashWalletUiBackend::onContextReady() {
     auto &b = modules().zcash_wallet_backend;
     b.onWallet_state_changed([this](QString) { QTimer::singleShot(0, this, [this] { refresh(); }); });
     b.onSync_progress([this](QString) { QTimer::singleShot(0, this, [this] { loadSync(); }); });
+    // A paid transparent address rotates out, so Receive follows the balance.
     b.onBalance_changed([this](QString) {
-        QTimer::singleShot(0, this, [this] { loadBalances(); syncHistoryToHeight(); });
+        QTimer::singleShot(0, this, [this] { loadBalances(); loadReceive(); syncHistoryToHeight(); });
     });
-    b.onServer_health_changed([this](QString) { QTimer::singleShot(0, this, [this] { loadServerHealth(); }); });
+    // The payload is server_health()'s full reply for the backend's active network.
+    b.onServer_health_changed([this](QString payload) {
+        QTimer::singleShot(0, this, [this, payload] {
+            const QJsonObject o = parse(payload);
+            if (!o.value("ok").toBool()) { loadServerHealth(); return; }
+            if (o.value("network").toString() != parse(networksJson()).value("active").toString()) return;
+            setServerHealthJson(stripOk(payload));
+            m_healthReadAge.restart();
+        });
+    });
     b.onJob_finished([this](QString id, QString) {
         QTimer::singleShot(0, this, [this, id] { if (id == pendingJobId()) pollJob(); });
     });
@@ -283,19 +306,14 @@ void ZcashWalletUiBackend::loadReceive() {
 
 void ZcashWalletUiBackend::loadServers() {
     const QString r = modules().zcash_wallet_backend.servers();
-    if (!ok(r, "servers")) { setServersJson({}); return; }
-    QJsonObject o = parse(r);
-    o.remove("ok");
-    // servers() does not carry the proxy; show the one this session saved until it does.
-    const QString saved = m_proxySaved.value(o.value("network").toString());
-    if (!o.contains("proxy") && !saved.isEmpty()) o.insert("proxy", saved);
-    setServersJson(compact(o));
+    setServersJson(ok(r, "servers") ? stripOk(r) : QString());
 }
 
 // On the read poll, so quiet: the health reply describes its own failures.
 void ZcashWalletUiBackend::loadServerHealth() {
     const QString r = modules().zcash_wallet_backend.server_health();
     setServerHealthJson(parse(r).value("ok").toBool() ? stripOk(r) : QString());
+    m_healthReadAge.restart();
 }
 
 // A module matrix, not an image: the design system has no QR control and the ui_qml sandbox
@@ -576,6 +594,11 @@ void ZcashWalletUiBackend::dismissSend() {
 
 // ---- receiving and network -----------------------------------------------------------------
 
+// { ok, valid, kind, shielded, receivers? } or { ok, valid: false, reason } on the active network.
+QString ZcashWalletUiBackend::addressValid(QString text) {
+    return modules().zcash_wallet_backend.address_valid(text.trimmed());
+}
+
 void ZcashWalletUiBackend::newAddress() {
     setLastError({});
     if (ok(modules().zcash_wallet_backend.new_address(), "new address")) loadReceive();
@@ -589,11 +612,5 @@ void ZcashWalletUiBackend::applyPreset(QString name) {
 void ZcashWalletUiBackend::setProxy(QString proxy) {
     setLastError({});
     const QJsonObject cfg{{"proxy", proxy.trimmed()}, {"proxyRequired", true}};
-    const QString r = modules().zcash_wallet_backend.set_proxy(compact(cfg));
-    if (!ok(r, "proxy")) return;
-    // The node module answers with the proxy as it stored it, normalized.
-    const QJsonObject o = parse(r);
-    m_proxySaved.insert(o.value("network").toString(), o.value("proxy").toString());
-    loadServers();
-    loadServerHealth();
+    if (ok(modules().zcash_wallet_backend.set_proxy(compact(cfg)), "proxy")) { loadServers(); loadServerHealth(); }
 }
