@@ -1,0 +1,71 @@
+// Secrets (passwords, the recovery phrase, the viewing key) cross only as SLOT arguments and
+// SLOT return values: a PROP is cached and broadcast to every replica. ci.yml enforces it.
+// Every PROP is a JSON string; EMPTY means "not read yet", shown as an em-dash.
+class ZcashWalletUi
+{
+    PROP(QString lastError="" READONLY)
+    // A wallet job (open, create, restore, close, change password) is in flight.
+    PROP(bool busy=false READONLY)
+    PROP(QString pendingJobId="" READONLY)
+    PROP(QString pendingJobKind="" READONLY)
+    // { jobId, kind, state, error, name } of the last settled job; answers zcash.wallet.unlock.
+    PROP(QString lastJobJson="" READONLY)
+    // wallet_status(): { open, name?, network?, birthdayHeight? }
+    PROP(QString statusJson="{}" READONLY)
+    // sync_status().sync: { state, tip, birthday, fullyScanned, blocksScanned, lastError, ... }
+    PROP(QString syncJson="" READONLY)
+    // { networks, active }
+    PROP(QString networksJson="{}" READONLY)
+    // [{ name, network, birthdayHeight, createdAt }] on the active network.
+    PROP(QString walletsJson="[]" READONLY)
+    // balances() in zatoshis, plus ...Zec display strings and spendPool (Ironwood + Sapling).
+    PROP(QString balancesJson="" READONLY)
+    // receive_info(): { unified, transparent }
+    PROP(QString receiveJson="" READONLY)
+    // QR module matrices { size, bits }, drawn by the view as rectangles.
+    PROP(QString shieldedQrJson="" READONLY)
+    PROP(QString transparentQrJson="" READONLY)
+    // servers() and server_health() of the node module, for the active network.
+    PROP(QString serversJson="" READONLY)
+    PROP(QString serverHealthJson="" READONLY)
+    // history(page): { page, pageSize, rows }, amounts with ...Zec display strings.
+    PROP(QString historyJson="" READONLY)
+    PROP(int historyPage=0 READONLY)
+    // The send or shielding under review, "" when none, and send_status() for it.
+    PROP(QString sendRequestId="" READONLY)
+    PROP(QString sendStatusJson="{}" READONLY)
+    PROP(QString sendError="" READONLY)
+
+    // refresh() keeps lastError; clearAndRefresh() is the user-initiated one.
+    SLOT(void refresh())
+    SLOT(void clearAndRefresh())
+
+    // ---- wallet management: the only SLOTs that take or return a secret ----
+    SLOT(void setActiveNetwork(QString network))
+    SLOT(void openWallet(QString name, QString password))
+    SLOT(void createWallet(QString name, QString password))
+    SLOT(void restoreWallet(QString name, QString password, QString phrase, int birthdayHeight))
+    SLOT(void changePassword(QString oldPassword, QString newPassword))
+    // Returned once for display; the view drops it. Never published, never logged.
+    SLOT(QString revealSeed(QString password))
+    SLOT(QString exportViewingKey(QString password))
+    SLOT(void closeWallet())
+
+    // ---- spending: request, review, approve with the password ----
+    // A recipient address with a ZEC amount, or a zcash: URI (amount and memo then come from it).
+    SLOT(void prepareSend(QString recipient, QString amountZec, QString memo, bool allowMixedPools))
+    // Shields everything at one transparent address, reviewed and approved like a send.
+    SLOT(void shieldAddress(QString address))
+    SLOT(void approveSend(QString password))
+    // Cancels a send still preparing or previewed; dismissSend clears a settled one locally.
+    SLOT(void cancelSend())
+    SLOT(void dismissSend())
+
+    // ---- receiving, history and network ----
+    SLOT(void newAddress())
+    SLOT(void refreshHistory())
+    SLOT(void showHistoryPage(int page))
+    SLOT(void applyPreset(QString name))
+    // socks5h://host:port; the proxy is always required.
+    SLOT(void setProxy(QString proxy))
+}
