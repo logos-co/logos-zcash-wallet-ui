@@ -18,7 +18,8 @@ It talks only to `zcash_wallet_backend`.
   Logos IPC; sends still go to the servers over Tor, and with no server enabled the node
   broadcasts them itself, without Tor. The pane shows the node's state, height and peers, or
   that it is not installed or not running for this network, and opens the Zcash Node app
-  (`zcash.node.configure`). It applies the next time a wallet opens.
+  (`zcash.node.configure`). It applies the next time a wallet opens. The servers take turns
+  checking the node; the pane shows the last check, and a warning if they hold different blocks.
 
 Passwords, phrases and keys cross the `.rep` only as SLOT arguments and return values, never
 as PROPs. CI checks that.

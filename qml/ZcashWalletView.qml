@@ -472,6 +472,22 @@ Item {
         return root.activeNetwork !== "regtest" && Number(s.estimatedHeight) - Number(s.height) > 10
                ? "Still syncing: the wallet sees the chain only as far as your node has it." : ""
     }
+    // The label the user knows a server by, or its host.
+    function serverName(url) {
+        for (var i = 0; i < root.serverList.length; i++)
+            if (root.serverList[i].url === url) return root.serverList[i].label || url
+        var m = /^[a-z]+:\/\/([^\/:]+)/.exec(url || "")
+        return m ? m[1] : (url || "a server")
+    }
+    // sync_status's crossCheck: a server against the node, at the lower of their two tips.
+    function crossCheckLine() {
+        var c = root.sync.crossCheck
+        if (!c || c.verdict === "differs") return ""
+        var name = root.serverName(c.server), gap = root.fmtHeight(Math.abs(c.nodeTip - c.serverTip))
+        if (c.verdict === "node_behind") return "On the same chain as " + name + ", " + gap + " blocks behind it."
+        if (c.verdict === "server_behind") return "On the same chain as " + name + ", which is " + gap + " blocks behind."
+        return "Matches " + name + " at block " + root.fmtHeight(Math.min(c.nodeTip, c.serverTip)) + "."
+    }
     function setLocalNode(on) {
         root.localNodeNote = ""
         logos.watch(backend.setLocalNode(on),
@@ -700,6 +716,22 @@ Item {
                     Layout.fillWidth: true; visible: text !== ""; textFormat: Text.PlainText; wrapMode: Text.Wrap
                     color: Theme.palette.textSecondary
                     text: root.localNodeDetail()
+                }
+                LogosText {
+                    objectName: "localNodeCrossCheck"
+                    Layout.fillWidth: true; visible: text !== ""; textFormat: Text.PlainText; wrapMode: Text.Wrap
+                    color: Theme.palette.textSecondary
+                    text: root.crossCheckLine()
+                }
+                LogosNotice {
+                    readonly property var check: root.sync.crossCheck
+                    objectName: "localNodeDiffersNotice"
+                    Layout.fillWidth: true
+                    severity: LogosNotice.Error
+                    shown: !!check && check.verdict === "differs"
+                    message: shown ? "Your node and " + root.serverName(check.server) + " have different blocks at "
+                                     + root.fmtHeight(Math.min(check.nodeTip, check.serverTip)) + ", so one of them is on a "
+                                     + "false chain. Until they agree, do not count on new payments shown here." : ""
                 }
                 LogosNotice {
                     objectName: "localNodeDownNotice"
