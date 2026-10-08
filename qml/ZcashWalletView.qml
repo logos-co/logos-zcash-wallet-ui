@@ -928,7 +928,7 @@ Item {
                             LogosInfoButton {
                                 title: "Transparent address"
                                 text: "Sender, receiver and amount are all public, as in Bitcoin. Use it only for payers "
-                                      + "that cannot pay a shielded address. Once it has been paid, the next address replaces it."
+                                      + "that cannot pay a shielded address."
                             }
                         }
                         LogosText { objectName: "transparentExplainer"; Layout.fillWidth: true; wrapMode: Text.Wrap
