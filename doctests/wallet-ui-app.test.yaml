@@ -349,6 +349,73 @@ sections:
               action: click_object
               find_value: "doneSendButton"
 
+            - name: "Receive hands out the phrase's second transparent address: the first holds the coinbase"
+              # External index 1 of the all-"abandon" phrase, derived as the core's regtest_keys
+              # example derives index 0 (tmBsTi2x…).
+              action: expect_property
+              find_value: "transparentAddress"
+              property: "text"
+              value: "tmVNYZhAQMp61GkauCYV5R4eVKpxzzMZBJF"
+              timeout: 30000
+            - name: "Pay it 0.000001 ZEC"
+              action: set_text
+              find_by: "objectName"
+              find_value: "sendRecipientField"
+              value: "tmVNYZhAQMp61GkauCYV5R4eVKpxzzMZBJF"
+            - name: "0.000001 ZEC is 100 zatoshis, less than the 5,000 it costs to spend them"
+              action: set_text
+              find_by: "objectName"
+              find_value: "sendAmountField"
+              value: "0.000001"
+            - name: "Review is enabled"
+              action: expect_property
+              find_value: "reviewButton"
+              property: "enabled"
+              value: true
+              timeout: 30000
+            - name: "Review it"
+              action: click_object
+              find_value: "reviewButton"
+            - name: "The review warns that the coin will be too small to spend"
+              action: expect_property
+              find_value: "reviewUneconomicNotice"
+              property: "visible"
+              value: true
+              timeout: 120000
+              screenshot: "wallet-ui-send-dust.png"
+            - name: "Approve it anyway"
+              action: click_object
+              find_value: "approveSendButton"
+            - name: "Type the password"
+              action: set_text
+              find_by: "objectName"
+              find_value: "approvePasswordField"
+              value: "doctest-pw"
+            - name: "Approve and send"
+              action: click_object
+              find_value: "approveConfirm"
+            - name: "It is sent"
+              action: expect_property
+              find_value: "sendStageLane"
+              property: "currentIndex"
+              value: 4
+              timeout: 180000
+            - name: "Close its review"
+              action: click_object
+              find_value: "doneSendButton"
+            - name: "Home"
+              action: call_method
+              find_value: "zcashWalletRoot"
+              method: "selectTab"
+              args: [0]
+            - name: "Once mined, Home lists the address with the coin as too small to spend, rather than nothing"
+              action: expect_property
+              find_value: "transparentAmount_tmVNYZhAQMp61GkauCYV5R4eVKpxzzMZBJF"
+              property: "text"
+              value: "0 ZEC + 0.000001 ZEC too small to spend"
+              timeout: 180000
+              screenshot: "wallet-ui-dust.png"
+
             - name: "Back to Home"
               action: call_method
               find_value: "zcashWalletRoot"

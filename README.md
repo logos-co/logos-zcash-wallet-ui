@@ -4,7 +4,9 @@
 It talks only to `zcash_wallet_backend`.
 
 - **Home:** the shielded balance (Ironwood and Sapling), transparent funds per address with a
-  Shield action each, and Orchard funds that need moving to Ironwood.
+  Shield action each, and Orchard funds that need moving to Ironwood. A transparent coin worth
+  no more than the 0.00005 ZEC it costs to spend shows as too small to spend; the wallet
+  library leaves it out of every balance, and Send's review warns before paying one.
 - **Migration (ZIP 318):** Move privately plans the run; the review shows the amounts that
   become public, the fees, the transactions, the schedule and when the signed transfers expire.
   The password signs the whole run, and Home follows it with Pause, Resume and Cancel. Move now

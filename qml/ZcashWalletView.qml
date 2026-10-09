@@ -528,7 +528,12 @@ Item {
         var t = root.transparentPool
         var s = (t.totalZec || "0") + " ZEC"
         if (root.zatOf(t.total) > root.zatOf(t.spendable)) s += " (" + t.pendingZec + " ZEC pending)"
-        return s + ". Payments to your transparent addresses are public. Shield each one to spend it privately."
+        s += ". Payments to your transparent addresses are public. Shield each one to spend it privately."
+        // zcash_client_sqlite leaves out any transparent coin worth no more than ZIP 317's 5,000-zatoshi marginal fee.
+        if (root.zatOf(t.uneconomic) > 0)
+            s += " Another " + t.uneconomicZec + " ZEC is in coins too small to spend: each is worth no more than "
+                 + "the 0.00005 ZEC fee it costs to spend one."
+        return s
     }
 
     // ---- review ----
@@ -1004,7 +1009,8 @@ Item {
                     LogosNotice {
                         objectName: "transparentRow"
                         Layout.fillWidth: true
-                        shown: root.balancesReady && root.zatOf(root.transparentPool.total) > 0
+                        shown: root.balancesReady && (root.zatOf(root.transparentPool.total) > 0
+                                                      || root.zatOf(root.transparentPool.uneconomic) > 0)
                         severity: LogosNotice.Info
                         title: "Transparent funds"
                         message: root.balancesReady ? root.transparentMessage() : ""
@@ -1025,8 +1031,10 @@ Item {
                                     RowLayout {
                                         spacing: Theme.spacing.small
                                         LogosText { textFormat: Text.PlainText; font.pixelSize: 12; text: modelData.address }
-                                        LogosText { textFormat: Text.PlainText; font.pixelSize: 12; color: Theme.palette.textSecondary
-                                                    text: modelData.totalZec + " ZEC" }
+                                        LogosText { objectName: "transparentAmount_" + modelData.address
+                                                    textFormat: Text.PlainText; font.pixelSize: 12; color: Theme.palette.textSecondary
+                                                    text: modelData.totalZec + " ZEC" + (root.zatOf(modelData.uneconomic) > 0
+                                                          ? " + " + modelData.uneconomicZec + " ZEC too small to spend" : "") }
                                         LogosButton {
                                             objectName: "shieldButton"
                                             visible: root.zatOf(modelData.spendable) >= root.shieldThreshold
@@ -1039,7 +1047,7 @@ Item {
                                             font.pixelSize: 12
                                             color: Theme.palette.textSecondary
                                             text: root.zatOf(modelData.total) >= root.shieldThreshold ? "Waiting for confirmations"
-                                                                                                      : "Too small to shield"
+                                                  : root.zatOf(modelData.total) > 0 ? "Too small to shield" : "Too small to spend"
                                         }
                                     }
                                 }
@@ -1723,6 +1731,15 @@ Item {
                         LogosText { text: "Expires"; color: Theme.palette.textTertiary }
                         LogosText { objectName: "reviewExpiry"; textFormat: Text.PlainText
                                     text: root.preview ? "at block " + root.fmtHeight(root.preview.expiryHeight) + " if not mined by then" : "" }
+                    }
+                    LogosNotice {
+                        objectName: "reviewUneconomicNotice"
+                        Layout.fillWidth: true
+                        severity: LogosNotice.Warning
+                        title: "Too small to spend"
+                        shown: !!root.preview && (root.preview.recipients || []).some(function (r) { return r.uneconomic === true })
+                        message: "A transparent payment of 0.00005 ZEC or less costs more in fees to spend than it is worth, so "
+                                 + "wallets, this one included, leave it out of their balance. Its recipient cannot use it."
                     }
                     LogosNotice {
                         objectName: "reviewPublicNotice"
