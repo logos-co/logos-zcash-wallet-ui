@@ -1,0 +1,409 @@
+name: zcash_wallet_ui — restore a regtest wallet, then shield, send and migrate, in Basecamp
+project_name: logos-zcash-wallet-ui
+
+# Every build is a flake URL rather than `path:..`: the harness runs each step in a throwaway
+# working directory, not in the checkout. CI pins {release} to the commit under test with
+# --release-for. The host is Basecamp in standalone mode: `--module` opens this app, and
+# `--modules-dir` holds the modules it depends on.
+#
+# Waits poll a property (`expect_property` with `timeout`): a text match also finds items that
+# are hidden, such as a closed sheet's buttons.
+#
+# The chain is a local regtest one, so the run needs no public server, no Tor and no faucet:
+# zebrad on libzebrad_c and two lightwalletd on loopback (logos-zebra-nix), mined by the wallet
+# core's own chain script. The phrase below is BIP-39's all-"abandon" test vector, and the
+# addresses are its regtest ones, as the core's `regtest_keys` example prints them.
+
+intro: |
+  The whole wallet in one headless run, in Basecamp, against the real backend, wallet core and
+  node module: a regtest chain is mined with the test phrase's coins on it, the app is pointed
+  at its two servers, the wallet is restored from the phrase and opens, and then each flow that moves
+  money runs through the app itself: shielding the transparent coinbase, a send, and the
+  ZIP 318 migration of the Orchard coinbase. Every approval types the password into the only
+  surface that takes one.
+
+sections:
+  - title: "Build Basecamp and the module tree"
+    steps:
+      - title: "Build Basecamp's standalone host, the app, and the modules it depends on"
+        run: |
+          set -eu
+          nix build 'github:logos-co/logos-basecamp#app-standalone' --no-write-lock-file -o result-basecamp
+          nix build 'github:logos-co/logos-qt-mcp' --no-write-lock-file -o result-mcp
+          nix build 'github:logos-co/logos-zcash-node-module{release}#install' --no-write-lock-file -o result-node
+          nix build 'github:logos-co/logos-zcash-wallet-core-module{release}#install' --no-write-lock-file -o result-core
+          nix build 'github:logos-co/logos-zcash-wallet-backend{release}#install' --no-write-lock-file -o result-backend
+          nix build 'github:logos-co/logos-zcash-wallet-ui{release}#install' --no-write-lock-file -o result-wallet
+          mkdir -p tree/modules
+          cp -rL result-node/modules/* result-core/modules/* result-backend/modules/* tree/modules/
+          chmod -R u+w tree
+          ls tree/modules result-wallet/plugins
+        code_block: |
+          nix build 'github:logos-co/logos-basecamp#app-standalone' -o result-basecamp
+          nix build 'github:logos-co/logos-qt-mcp' -o result-mcp
+          for m in node-module wallet-core-module wallet-backend wallet-ui; do
+            nix build "github:logos-co/logos-zcash-$m#install" -o "result-$m"
+          done
+          mkdir -p tree/modules
+          cp -rL result-node-module/modules/* result-wallet-core-module/modules/* \
+                 result-wallet-backend/modules/* tree/modules/
+          chmod -R u+w tree
+        expect_contains: ["zcash_wallet_ui", "zcash_wallet_backend", "zcash_wallet_core_module", "zcash_node_module"]
+
+  - title: "Mine a regtest chain with the wallet's coins on it"
+    steps:
+      - title: "Build zebrad on libzebrad_c, lightwalletd, and the wallet core's chain script"
+        run: |
+          set -eu
+          nix build 'github:logos-co/logos-zebra-nix{release}#regtest-zebrad' --no-write-lock-file -o result-zebrad
+          nix build 'github:logos-co/logos-zebra-nix{release}#lightwalletd' --no-write-lock-file -o result-lwd
+          nix build 'github:logos-co/logos-zcash-wallet-core-module{release}#regtest-chain' --no-write-lock-file -o result-chain
+          printf 'export ZEBRAD=%s LIGHTWALLETD=%s CHAIN_DIR=%s\n' \
+            "$PWD/result-zebrad/bin/zebrad" "$PWD/result-lwd/bin/lightwalletd" "$PWD/chain" > chain.env
+          cat result-chain/share/regtest/regtest.json
+        expect_contains: ['"nu6_3"']
+      - title: "Mine Orchard coinbase, transparent coinbase, then Ironwood coinbase to the phrase's addresses"
+        # 20 Orchard blocks to migrate, transparent ones to shield, 20 Ironwood ones to spend,
+        # then 130 more so the transparent coinbase matures.
+        run: |
+          set -eu
+          . ./chain.env
+          ./result-chain/bin/regtest-chain prepare \
+            uregtest1h8fnf3vrmswwj0r6nfvq24nxzmyjzaq5jvyxyc2afjtuze8tn93zjqt87kv9wm0ew4rkprpuphf08tc7f5nnd3j3kxnngyxf0cv9k9lc \
+            tmBsTi2xWTjUdEXnuTceL7fecEQKeWaPDJd
+        expect_contains: ["height 250"]
+      - title: "Keep mining a block every few seconds, so what the app sends gets mined"
+        run: |
+          set -eu
+          cat > miner.sh <<'SH'
+          . ./chain.env
+          # Ends with the chain: `regtest-chain stop` removes zebrad.pid.
+          while sleep 3 && [ -f chain/zebrad.pid ]; do ./result-chain/bin/regtest-chain mine 1 > /dev/null 2>&1 || true; done
+          SH
+          nohup sh miner.sh < /dev/null > miner.log 2>&1 &
+          echo $! > miner.pid
+          echo "miner $(cat miner.pid)"
+        expect_contains: ["miner"]
+      - title: "Give the modules the chain: its upgrade heights, and its two servers"
+        # A module instance runs regtest when its persistence directory holds regtest.json, and
+        # Basecamp reuses an instance directory that already exists. The servers are the two
+        # lightwalletd; the proxy is set to "direct" through the app below.
+        run: |
+          set -eu
+          for m in zcash_wallet_core_module zcash_node_module zcash_wallet_backend; do
+            mkdir -p "userdir/module_data/$m/doctest"
+            cp result-chain/share/regtest/regtest.json "userdir/module_data/$m/doctest/"
+          done
+          cat > userdir/module_data/zcash_node_module/doctest/zcash_servers.json <<'JSON'
+          {"version": 1, "networks": {"regtest": {
+            "preset": "custom",
+            "servers": [
+              {"id": "lwd0", "url": "http://127.0.0.1:29061", "operator": "lwd0", "label": "Regtest server 1", "enabled": true,
+               "classes": ["sync", "details", "taddr", "broadcast", "mempool", "tip"], "source": "user"},
+              {"id": "lwd1", "url": "http://127.0.0.1:29063", "operator": "lwd1", "label": "Regtest server 2", "enabled": true,
+               "classes": ["sync", "details", "taddr", "broadcast", "mempool", "tip"], "source": "user"}],
+            "proxy": "socks5h://127.0.0.1:9050", "proxyRequired": true, "suspects": {}, "localNode": false}}}
+          JSON
+          find userdir -type f | sort
+        expect_contains: ["zcash_servers.json"]
+
+  - title: "Drive the wallet"
+    steps:
+      - title: "Restore the wallet, then shield, send and migrate"
+        ui_test:
+          launch: "env QT_FORCE_STDERR_LOGGING=1 QML_INSPECTOR_PORT=3768 ./result-basecamp/bin/LogosBasecamp --module ./result-wallet --modules-dir ./tree/modules --user-dir ./userdir"
+          qt_mcp: "result-mcp"
+          launch_timeout: 600
+          tests:
+            - name: "With nothing open the app shows the Wallets screen"
+              action: wait_for
+              texts: ["No wallet open"]
+              timeout: 60000
+            - name: "Select regtest, which the modules offer once regtest.json is there"
+              action: call_method
+              find_value: "zcashWalletRoot"
+              method: "selectNetwork"
+              args: ["regtest"]
+            - name: "The app is on regtest"
+              action: expect_property
+              find_value: "networkChip"
+              property: "text"
+              value: "regtest"
+              timeout: 30000
+              screenshot: "wallet-ui-wallets.png"
+
+            - name: "Open Servers and privacy"
+              action: click_object
+              find_value: "networkSettingsButton"
+            - name: "Both servers are listed"
+              action: wait_for
+              texts: ["Regtest server 1", "Regtest server 2"]
+              timeout: 15000
+            - name: "Set the proxy to direct, which only a regtest chain on loopback accepts"
+              action: set_text
+              find_by: "objectName"
+              find_value: "proxyField"
+              value: "direct"
+            - name: "Save the proxy"
+              action: click_object
+              find_value: "saveProxyButton"
+            - name: "Both servers answer, on the same chain"
+              # The node module polls each server once a minute.
+              action: expect_property
+              find_value: "zcashWalletRoot"
+              property: "overall"
+              value: "ok"
+              timeout: 120000
+              screenshot: "wallet-ui-servers.png"
+            - name: "Close the sheet"
+              action: call_method
+              find_value: "zcashWalletRoot"
+              method: "closeSheets"
+              args: []
+
+            - name: "Open Restore"
+              action: click_object
+              find_value: "restoreWalletButton"
+            - name: "Name the wallet"
+              action: set_text
+              find_by: "objectName"
+              find_value: "restoreNameField"
+              value: "doctest"
+            - name: "Type the recovery phrase"
+              action: set_text
+              find_by: "objectName"
+              find_value: "restorePhraseField"
+              value: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art"
+            - name: "Start at block 1, where this chain's coins begin"
+              action: set_text
+              find_by: "objectName"
+              find_value: "restoreBirthdayField"
+              value: "1"
+            - name: "The sheet says scanning starts at block 1, not at mainnet's Sapling height"
+              action: expect_property
+              find_value: "restoreStartLine"
+              property: "text"
+              value: "Scanning starts at block 1."
+              timeout: 5000
+            - name: "Type the password"
+              action: set_text
+              find_by: "objectName"
+              find_value: "restorePasswordField"
+              value: "doctest-pw"
+            - name: "Repeat it"
+              action: set_text
+              find_by: "objectName"
+              find_value: "restorePasswordRepeatField"
+              value: "doctest-pw"
+            - name: "Restore"
+              action: click_object
+              find_value: "restoreButton"
+            - name: "Restoring opens the wallet"
+              action: expect_property
+              find_value: "zcashWalletRoot"
+              property: "walletOpen"
+              value: true
+              timeout: 60000
+            - name: "...without asking for the password again"
+              action: expect_property
+              find_value: "openWalletSheet"
+              property: "visible"
+              value: false
+            - name: "...on regtest"
+              action: expect_property
+              find_value: "statusLine"
+              property: "text"
+              value: "Open: doctest · regtest"
+              timeout: 10000
+            - name: "Synced: the Ironwood coinbase is spendable"
+              action: expect_property
+              find_value: "zcashWalletRoot"
+              property: "balancesReady"
+              value: true
+              timeout: 180000
+            - name: "...125 ZEC of it"
+              action: wait_for
+              texts: ["125 ZEC"]
+              timeout: 60000
+            - name: "The transparent coinbase can be shielded"
+              action: expect_property
+              find_value: "shieldButton"
+              property: "visible"
+              value: true
+              timeout: 60000
+            - name: "...and the Orchard coinbase moved"
+              action: expect_property
+              find_value: "migrateButton"
+              property: "visible"
+              value: true
+              timeout: 60000
+              screenshot: "wallet-ui-home.png"
+
+            - name: "Shield the transparent address"
+              action: click_object
+              find_value: "shieldButton"
+            - name: "The shielding is previewed"
+              action: expect_property
+              find_value: "approveSendButton"
+              property: "visible"
+              value: true
+              timeout: 120000
+              screenshot: "wallet-ui-shield-review.png"
+            - name: "Approve"
+              action: click_object
+              find_value: "approveSendButton"
+            - name: "Type the password"
+              action: set_text
+              find_by: "objectName"
+              find_value: "approvePasswordField"
+              value: "doctest-pw"
+            - name: "Approve and shield"
+              action: click_object
+              find_value: "approveConfirm"
+            - name: "The shielding is sent"
+              # sendStage() is 4 once the state is "sent", past the lane's last stage.
+              action: expect_property
+              find_value: "sendStageLane"
+              property: "currentIndex"
+              value: 4
+              timeout: 180000
+            - name: "...without a failure on the lane"
+              action: expect_property
+              find_value: "sendStageLane"
+              property: "failed"
+              value: false
+            - name: "...and a server accepted it"
+              action: wait_for
+              texts: ["Accepted"]
+              timeout: 10000
+              screenshot: "wallet-ui-shielded.png"
+            - name: "Close the review"
+              action: click_object
+              find_value: "doneSendButton"
+            - name: "The review is closed"
+              action: expect_property
+              find_value: "reviewSheet"
+              property: "visible"
+              value: false
+              timeout: 10000
+
+            - name: "Go to Send"
+              action: call_method
+              find_value: "zcashWalletRoot"
+              method: "selectTab"
+              args: [1]
+            - name: "Pay another regtest wallet (BIP-39's all-\"zoo\" test vector)"
+              action: set_text
+              find_by: "objectName"
+              find_value: "sendRecipientField"
+              value: "uregtest1t6vp9chtr2xakzes5l3ugad3ne5e9tcsfcuqpy5gphv7ksdl8qdgs8aavccgyg5qwrx9mjc8y7v47wu9ggheg9jwfyzrg864jqkhfxmd"
+            - name: "One ZEC"
+              action: set_text
+              find_by: "objectName"
+              find_value: "sendAmountField"
+              value: "1"
+            - name: "The recipient checks out and Review is enabled"
+              action: expect_property
+              find_value: "reviewButton"
+              property: "enabled"
+              value: true
+              timeout: 30000
+            - name: "Review"
+              action: click_object
+              find_value: "reviewButton"
+            - name: "The send is previewed"
+              action: expect_property
+              find_value: "approveSendButton"
+              property: "visible"
+              value: true
+              timeout: 120000
+              screenshot: "wallet-ui-send-review.png"
+            - name: "Approve"
+              action: click_object
+              find_value: "approveSendButton"
+            - name: "Type the password"
+              action: set_text
+              find_by: "objectName"
+              find_value: "approvePasswordField"
+              value: "doctest-pw"
+            - name: "Approve and send"
+              action: click_object
+              find_value: "approveConfirm"
+            - name: "The send is sent"
+              action: expect_property
+              find_value: "sendStageLane"
+              property: "currentIndex"
+              value: 4
+              timeout: 180000
+            - name: "...without a failure on the lane"
+              action: expect_property
+              find_value: "sendStageLane"
+              property: "failed"
+              value: false
+            - name: "...and a server accepted it"
+              action: wait_for
+              texts: ["Accepted"]
+              timeout: 10000
+              screenshot: "wallet-ui-sent.png"
+            - name: "Close the review"
+              action: click_object
+              find_value: "doneSendButton"
+
+            - name: "Back to Home"
+              action: call_method
+              find_value: "zcashWalletRoot"
+              method: "selectTab"
+              args: [0]
+            - name: "Plan the move of the Orchard funds"
+              action: click_object
+              find_value: "migrateButton"
+            - name: "The plan is shown with what becomes public"
+              action: expect_property
+              find_value: "approveMigrationButton"
+              property: "visible"
+              value: true
+              timeout: 180000
+              screenshot: "wallet-ui-migration-review.png"
+            - name: "Approve"
+              action: click_object
+              find_value: "approveMigrationButton"
+            - name: "Type the password"
+              action: set_text
+              find_by: "objectName"
+              find_value: "approvePasswordField"
+              value: "doctest-pw"
+            - name: "Approve and sign the run"
+              action: click_object
+              find_value: "approveConfirm"
+            - name: "The run is signed and under way"
+              # The panel shows a run once it is committed; there is none before.
+              action: expect_property
+              find_value: "zcashWalletRoot"
+              property: "migrationShown"
+              value: true
+              timeout: 300000
+              screenshot: "wallet-ui-migration.png"
+
+            - name: "Go to Activity"
+              action: call_method
+              find_value: "zcashWalletRoot"
+              method: "selectTab"
+              args: [3]
+            - name: "Activity lists the wallet's transactions"
+              action: expect_property
+              find_value: "historyEmpty"
+              property: "visible"
+              value: false
+              timeout: 60000
+              screenshot: "wallet-ui-activity.png"
+
+  - title: "Stop the chain"
+    steps:
+      - title: "Stop the miner, both lightwalletd and zebrad"
+        run: |
+          set -eu
+          kill "$(cat miner.pid)" 2>/dev/null || true
+          . ./chain.env
+          ./result-chain/bin/regtest-chain stop
+          echo stopped
+        expect_contains: ["stopped"]

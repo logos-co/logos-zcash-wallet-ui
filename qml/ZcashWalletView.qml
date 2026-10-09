@@ -217,9 +217,17 @@ Item {
         }
         if (lastJob.state !== "done") return
         if (lastJob.kind === "create" || lastJob.kind === "restore") {
-            root.notify(lastJob.kind === "create" ? "Wallet created" : "Wallet restored", "Enter its password to open it.")
-            openNameField.text = lastJob.name || ""
-            openWalletSheet.open()
+            var created = lastJob.kind === "create"
+            if (root.walletOpen) {
+                root.notify(created ? "Wallet created" : "Wallet restored",
+                            created ? "Write down its recovery phrase: Settings, Show recovery phrase."
+                                    : "Its balance fills in as it scans.")
+            } else {
+                // A wallet core that does not open what it creates.
+                root.notify(created ? "Wallet created" : "Wallet restored", "Enter its password to open it.")
+                openNameField.text = lastJob.name || ""
+                openWalletSheet.open()
+            }
         } else if (lastJob.kind === "change password") {
             root.notify("Password changed", "")
         }
@@ -355,7 +363,8 @@ Item {
     // Below the first bundled checkpoint the core starts at Sapling activation.
     function birthdayFor(input) {
         var t = (input || "").trim()
-        var floor = root.activeNetwork === "testnet" ? 280000 : 419200
+        // Sapling's activation height; a regtest chain activates it at block 1.
+        var floor = root.activeNetwork === "testnet" ? 280000 : (root.activeNetwork === "regtest" ? 1 : 419200)
         if (t === "") return floor
         if (/^[0-9]+$/.test(t)) return Math.max(floor, parseInt(t, 10))
         var m = /^([0-9]{4})-([0-9]{1,2})$/.exec(t)
