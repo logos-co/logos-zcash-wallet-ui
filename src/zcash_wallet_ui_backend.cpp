@@ -130,8 +130,10 @@ QJsonObject historyWithZec(QJsonObject h) {
     QJsonArray rows;
     for (const QJsonValue &v : h.value("rows").toArray()) {
         QJsonObject r = v.toObject();
-        addZec(r, {"delta", "fee", "amountMadePublic"});
+        addZec(r, {"delta", "fee", "amountMadePublic", "sentToOthers", "sentToSelf", "shielded"});
         r.insert("to", mapObjects(r.value("to").toArray(), {"amount"}));
+        r.insert("toSelf", mapObjects(r.value("toSelf").toArray(), {"amount"}));
+        r.insert("from", mapObjects(r.value("from").toArray(), {"amount"}));
         rows.append(r);
     }
     h.insert("rows", rows);
