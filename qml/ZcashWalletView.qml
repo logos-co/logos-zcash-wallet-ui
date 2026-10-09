@@ -97,6 +97,28 @@ Item {
         return s.enabled === true && (!Array.isArray(s.classes) || s.classes.indexOf("broadcast") >= 0)
     })
     property string localNodeNote: ""
+    // Network settings apply when a wallet opens; while one is open they show but do not change.
+    readonly property bool networkLocked: walletOpen
+    readonly property string defaultProxy: "socks5h://127.0.0.1:9050"
+    // Public servers the user set to skip Tor; the user's own network never goes through it.
+    readonly property var directServers: serverList.filter(function (s) {
+        return s.enabled === true && s.direct === true && !root.isLanUrl(s.url)
+    })
+    // Operators of the servers in use: two or more check each other.
+    readonly property var operatorsInUse: {
+        var seen = [], out = []
+        serverList.forEach(function (s) {
+            var k = (s.operator || "").toLowerCase()
+            if (s.enabled === true && k !== "" && seen.indexOf(k) < 0) { seen.push(k); out.push(s.operator) }
+        })
+        return out
+    }
+    // The server whose "without Tor" waits for the user's confirmation.
+    property string torOffAskedFor: ""
+    // What the proxy, a preset or a server edit refused, shown next to it ("proxy" or "servers").
+    property string networkNote: ""
+    property string networkNoteAt: ""
+    onNetworkLockedChanged: { torOffAskedFor = ""; networkNote = "" }
     readonly property bool localNodeAvailable: localNode.available === true
     onLocalNodeAvailableChanged: if (localNodeAvailable) localNodeNote = ""
     readonly property string activeNetwork: ready ? (networks.active || "") : ""
@@ -504,6 +526,36 @@ Item {
         if (c.verdict === "server_behind") return "On the same chain as " + name + ", which is " + gap + " blocks behind."
         return "Matches " + name + " at block " + root.fmtHeight(Math.min(c.nodeTip, c.serverTip)) + "."
     }
+    // Loopback, private, CGNAT and link-local addresses, and local names: as the node module decides.
+    function isLanUrl(url) {
+        var m = /^https?:\/\/(\[[^\]]+\]|[^\/:]+)/i.exec(url || "")
+        if (!m) return false
+        var h = m[1].toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "")
+        var v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h)
+        if (v4) {
+            var a = +v4[1], b = +v4[2]
+            return a === 127 || a === 10 || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168)
+                   || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254)
+        }
+        if (h.indexOf(":") >= 0) return h === "::1" || /^f[cd]/.test(h) || /^fe[89ab]/.test(h)
+        return h === "localhost" || /\.(local|lan|home\.arpa|internal)$/.test(h)
+    }
+    function isOnionUrl(url) { return /^http:\/\/[a-z2-7]{56}\.onion(:\d+)?\/?$/i.test(url || "") }
+    // A settings SLOT's reply: "" or the refusal, shown at `at`; `refused` runs on a refusal.
+    function networkCall(reply, at, refused) {
+        root.networkNote = ""
+        logos.watch(reply,
+                    function (e) {
+                        root.networkNoteAt = at
+                        root.networkNote = e || ""
+                        if (e && refused) refused()
+                    },
+                    function () {
+                        root.networkNoteAt = at
+                        root.networkNote = "The wallet backend did not answer."
+                        if (refused) refused()
+                    })
+    }
     function setLocalNode(on) {
         root.localNodeNote = ""
         logos.watch(backend.setLocalNode(on),
@@ -684,26 +736,208 @@ Item {
     }
 
     // Built on the Wallets screen and in Settings: servers are needed before a wallet can open.
+    // While one is open the settings show but do not change; they apply when a wallet opens.
     Component {
         id: networkPane
         ColumnLayout {
+            id: pane
             spacing: Theme.spacing.small
+
+            // The fields clear at once, so a reply arriving later never wipes the next server typed in.
+            function addServer() {
+                var address = addServerAddress.text.trim(), name = addServerName.text.trim()
+                addServerAddress.text = ""
+                addServerName.text = ""
+                root.networkCall(backend.addServer(address, name), "servers", function () {
+                    if (addServerAddress.text === "" && addServerName.text === "") {
+                        addServerAddress.text = address
+                        addServerName.text = name
+                    }
+                })
+            }
+
+            LogosNotice {
+                objectName: "networkLockedNotice"
+                Layout.fillWidth: true
+                shown: root.networkLocked
+                message: "These settings apply when a wallet opens. Close the wallet to change them."
+            }
 
             LogosText { text: "Network privacy"; font.pixelSize: 15 }
             LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
-                        text: root.localNodeOn ? "Every connection to a server goes through this Tor proxy. Your node's own peer connections do not."
-                                               : "Every connection goes through this Tor proxy. The wallet never connects without it." }
+                        text: "Servers go through this Tor proxy, unless you set one to skip Tor. Servers on your own network "
+                              + "are reached directly, since Tor cannot reach them." }
             RowLayout {
                 Layout.fillWidth: true
-                LogosTextField { id: proxyField; objectName: "proxyField"; Layout.fillWidth: true
-                                 placeholderText: "socks5h://127.0.0.1:9050"; text: root.serversInfo.proxy || "" }
+                LogosTextField { id: proxyField; objectName: "proxyField"; Layout.fillWidth: true; readOnly: root.networkLocked
+                                 placeholderText: root.defaultProxy; text: root.serversInfo.proxy || "" }
                 LogosButton {
                     objectName: "saveProxyButton"; text: "Save proxy"
+                    visible: !root.networkLocked
                     enabled: root.ready && proxyField.text.trim() !== "" && proxyField.text.trim() !== (root.serversInfo.proxy || "")
-                    onClicked: backend.setProxy(proxyField.text.trim())
+                    onClicked: root.networkCall(backend.setProxy(proxyField.text.trim()), "proxy")
                 }
             }
+            LogosNotice {
+                Layout.fillWidth: true
+                severity: LogosNotice.Error
+                shown: root.networkNote !== "" && root.networkNoteAt === "proxy"
+                message: shown ? root.networkNote : ""
+            }
 
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacing.small
+                LogosText { text: "Servers"; font.pixelSize: 15 }
+                LogosInfoButton {
+                    objectName: "operatorsInfo"
+                    title: "More than one operator"
+                    text: "Blocks come from each operator in turn and must fit together, so a server that serves a false chain "
+                          + "is caught. A transaction one server accepts must reach another operator within two minutes, or the "
+                          + "wallet sends it there too, so a server that drops it is caught. If one operator goes down, another "
+                          + "keeps the wallet working, and no one operator sees every transaction you look up. Servers of the "
+                          + "same operator only stand in for each other."
+                }
+                LogosBadge { visible: root.overall !== ""; text: root.overallLabel(root.overall); color: root.overallColor(root.overall) }
+                Item { Layout.fillWidth: true }
+            }
+            LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textTertiary
+                        text: (root.localNodeOn ? "Your node answers every read; these servers only receive the transactions you send. "
+                                                : "")
+                              + "Turn on the servers you want, from more than one operator if you can: they check each other. "
+                              + "A change applies the next time a wallet opens." }
+            // Above the list, so it stays in place however long the list grows.
+            ColumnLayout {
+                objectName: "addServerPane"
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacing.small
+                visible: !root.networkLocked
+                spacing: Theme.spacing.tiny
+                LogosText { text: "Add a server"; font.weight: Theme.typography.weightMedium }
+                LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
+                            text: "A lightwalletd server you trust, such as your own node: an address like 192.168.1.20 or "
+                                  + "zebra.lan:9067, or https://host:port. Servers on your own network are reached directly, "
+                                  + "without Tor. Plain http to them is not encrypted, so use it only on a network you trust." }
+                RowLayout {
+                    Layout.fillWidth: true
+                    LogosTextField { id: addServerAddress; objectName: "addServerAddress"; Layout.fillWidth: true
+                                     placeholderText: "192.168.1.20:9067" }
+                    LogosTextField { id: addServerName; objectName: "addServerName"; Layout.preferredWidth: 180
+                                     placeholderText: "Name (optional)" }
+                    LogosButton { objectName: "addServerButton"; text: "Add"
+                                  enabled: root.ready && addServerAddress.text.trim() !== ""; onClicked: pane.addServer() }
+                }
+            }
+            LogosNotice {
+                objectName: "serversNote"
+                Layout.fillWidth: true
+                severity: LogosNotice.Error
+                shown: root.networkNote !== "" && root.networkNoteAt === "servers"
+                message: shown ? root.networkNote : ""
+            }
+            LogosText { visible: root.serverList.length === 0; color: Theme.palette.textSecondary
+                        text: "No server list yet." }
+            Repeater {
+                model: root.serverList
+                LogosFrame {
+                    id: serverRow
+                    readonly property bool lan: root.isLanUrl(modelData.url)
+                    readonly property bool onion: root.isOnionUrl(modelData.url)
+                    readonly property bool direct: modelData.direct === true && !lan
+                    Layout.fillWidth: true
+                    contentItem: ColumnLayout {
+                        spacing: Theme.spacing.tiny
+                        RowLayout {
+                            Layout.fillWidth: true
+                            LogosText { textFormat: Text.PlainText; text: modelData.label || modelData.id || "" }
+                            LogosText { visible: text !== "" && text !== (modelData.label || ""); textFormat: Text.PlainText
+                                        color: Theme.palette.textTertiary; text: modelData.operator || "" }
+                            LogosBadge { text: modelData.enabled ? (root.localNodeOn ? "Broadcasts" : "In use") : "Standby"
+                                         color: modelData.enabled ? Theme.palette.success : Theme.palette.textTertiary }
+                            LogosBadge { objectName: "lanBadge_" + modelData.id; visible: serverRow.lan
+                                         text: "Your network"; color: Theme.palette.textSecondary }
+                            LogosBadge { objectName: "withoutTorBadge_" + modelData.id; visible: serverRow.direct
+                                         text: "Without Tor"; color: Theme.palette.warning }
+                            // Takes the free space but asks for none, so a long error elides (keeping its cause)
+                            // instead of widening the row and pushing its controls out.
+                            LogosText { Layout.fillWidth: true; Layout.preferredWidth: 1; horizontalAlignment: Text.AlignRight; elide: Text.ElideMiddle
+                                        textFormat: Text.PlainText; font.pixelSize: 12; color: Theme.palette.textSecondary
+                                        text: modelData.enabled ? root.healthLine(modelData.id) : "" }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            LogosText { Layout.fillWidth: true; Layout.preferredWidth: 1; elide: Text.ElideRight; textFormat: Text.PlainText
+                                        font.pixelSize: 11; color: Theme.palette.textTertiary
+                                        text: (modelData.url || "") + (serverRow.lan ? " · reached directly, without Tor"
+                                              : serverRow.onion ? " · an onion service, always through Tor"
+                                              : serverRow.direct ? " · without Tor" : " · through Tor") }
+                            // Off asks first, below; on needs no asking.
+                            LogosSwitch {
+                                objectName: "torSwitch_" + modelData.id
+                                visible: !root.networkLocked && !serverRow.lan && !serverRow.onion
+                                text: "Tor"
+                                checkable: false
+                                checked: !serverRow.direct
+                                enabled: root.ready
+                                onClicked: {
+                                    if (serverRow.direct) root.networkCall(backend.setServerTor(modelData.id, true), "servers")
+                                    else root.torOffAskedFor = modelData.id
+                                }
+                            }
+                            LogosSwitch {
+                                objectName: "serverSwitch_" + modelData.id
+                                visible: !root.networkLocked
+                                text: "Use"
+                                checkable: false
+                                checked: modelData.enabled === true
+                                enabled: root.ready
+                                onClicked: root.networkCall(backend.setServerEnabled(modelData.id, !modelData.enabled), "servers")
+                            }
+                            LogosButton {
+                                objectName: "removeServer_" + modelData.id
+                                visible: !root.networkLocked && modelData.source === "user"
+                                text: "Remove"
+                                enabled: root.ready
+                                onClicked: root.networkCall(backend.removeServer(modelData.id), "servers")
+                            }
+                        }
+                        LogosNotice {
+                            objectName: "torOffConfirm_" + modelData.id
+                            Layout.fillWidth: true
+                            severity: LogosNotice.Warning
+                            shown: root.torOffAskedFor === modelData.id && !serverRow.direct && !root.networkLocked
+                            title: "Reach " + (modelData.label || modelData.id) + " without Tor?"
+                            message: "It will see this computer's IP address, and can link it to the transactions this wallet "
+                                     + "sends and looks up, and to its transparent addresses. Your internet provider sees that "
+                                     + "you use Zcash."
+                            actions: [
+                                LogosButton { objectName: "skipTorButton_" + modelData.id; text: "Reach it without Tor"
+                                              onClicked: { root.torOffAskedFor = ""; root.networkCall(backend.setServerTor(modelData.id, false), "servers") } },
+                                LogosButton { objectName: "keepTorButton_" + modelData.id; text: "Keep Tor"
+                                              onClicked: root.torOffAskedFor = "" }
+                            ]
+                        }
+                    }
+                }
+            }
+            LogosNotice {
+                objectName: "oneOperatorNotice"
+                Layout.fillWidth: true
+                shown: root.serversRead && !root.localNodeOn && root.operatorsInUse.length === 1
+                message: shown ? "Only " + root.operatorsInUse[0] + " is in use, so nothing checks its answers. "
+                                 + "Turn on a server from another operator." : ""
+            }
+            // Below the list, so the rows do not move when it appears; each row has its own badge.
+            LogosNotice {
+                objectName: "directNotice"
+                Layout.fillWidth: true
+                severity: LogosNotice.Warning
+                shown: root.directServers.length > 0
+                title: "Reached without Tor"
+                message: shown ? root.directServers.map(function (d) { return d.label || d.id }).join(", ")
+                                 + (root.directServers.length === 1 ? " sees" : " see")
+                                 + " this computer's IP address, and can link it to this wallet's transactions." : ""
+            }
             ColumnLayout {
                 id: localNodePane
                 objectName: "localNodePane"
@@ -724,20 +958,19 @@ Item {
                     Layout.fillWidth: true
                     LogosText { text: "Your node"; font.pixelSize: 15 }
                     Item { Layout.fillWidth: true }
-                    // Shows what the node module stores: a click asks, and its answer moves the switch.
                     LogosSwitch {
                         objectName: "localNodeSwitch"
                         text: "Use my local node"
                         checkable: false
                         checked: root.localNodeOn
-                        enabled: root.ready && (root.localNodeOn || root.localNodeAvailable)
+                        enabled: root.ready && !root.networkLocked && (root.localNodeOn || root.localNodeAvailable)
                         onClicked: root.setLocalNode(!root.localNodeOn)
                     }
                 }
                 LogosText {
                     Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
                     text: "Reads come from your own Zcash node over Logos IPC, so no server sees them. Transactions you send "
-                          + "still go to the servers below, over Tor. With no server enabled, your node broadcasts them itself, "
+                          + "still go to the servers below. With no server enabled, your node broadcasts them itself, "
                           + "over its own peer connections and without Tor. A change applies the next time a wallet opens."
                 }
                 LogosText {
@@ -792,51 +1025,7 @@ Item {
                 }
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.spacing.small
-                LogosText { text: "Servers"; font.pixelSize: 15 }
-                LogosBadge { visible: root.overall !== ""; text: root.overallLabel(root.overall); color: root.overallColor(root.overall) }
-                Item { Layout.fillWidth: true }
-                LogosText { text: "Preset"; color: Theme.palette.textSecondary }
-                Repeater {
-                    model: [{ id: "two-operators", label: "Two operators" }, { id: "single", label: "Single server" }]
-                    LogosButton {
-                        objectName: "preset_" + modelData.id
-                        text: modelData.label
-                        enabled: root.ready
-                        variant: root.serversInfo.preset === modelData.id ? LogosButton.Variant.Primary : LogosButton.Variant.Secondary
-                        onClicked: backend.applyPreset(modelData.id)
-                    }
-                }
-            }
-            LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textTertiary
-                        text: (root.localNodeOn ? "Your node answers every read; these servers only receive the transactions you send. "
-                                                : "Two operators check each other's answers. ")
-                              + "A change applies the next time a wallet opens." }
-            LogosText { visible: root.serverList.length === 0; color: Theme.palette.textSecondary
-                        text: "No server list yet." }
-            Repeater {
-                model: root.serverList
-                LogosFrame {
-                    Layout.fillWidth: true
-                    contentItem: ColumnLayout {
-                        spacing: Theme.spacing.tiny
-                        RowLayout {
-                            Layout.fillWidth: true
-                            LogosText { textFormat: Text.PlainText; text: modelData.label || modelData.id || "" }
-                            LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary; text: modelData.operator || "" }
-                            LogosBadge { text: modelData.enabled ? (root.localNodeOn ? "Broadcasts" : "In use") : "Standby"
-                                         color: modelData.enabled ? Theme.palette.success : Theme.palette.textTertiary }
-                            Item { Layout.fillWidth: true }
-                            LogosText { textFormat: Text.PlainText; font.pixelSize: 12; color: Theme.palette.textSecondary
-                                        text: modelData.enabled ? root.healthLine(modelData.id) : "" }
-                        }
-                        LogosText { textFormat: Text.PlainText; font.pixelSize: 11; color: Theme.palette.textTertiary
-                                    text: modelData.url || "" }
-                    }
-                }
-            }
+
         }
     }
 

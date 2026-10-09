@@ -2,6 +2,8 @@
 
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRegularExpression>
+#include <QUrl>
 
 #include "logos_sdk.h"
 #include "qrcodegen.hpp"
@@ -756,20 +758,109 @@ void ZcashWalletUiBackend::newAddress() {
     if (ok(modules().zcash_wallet_backend.new_address(), "new address")) loadReceive();
 }
 
-void ZcashWalletUiBackend::applyPreset(QString name) {
-    setLastError({});
-    if (ok(modules().zcash_wallet_backend.apply_preset(name), "servers")) { loadServers(); loadServerHealth(); }
+// ---- servers and privacy: each returns "" or the refusal --------------------------------------
+
+namespace {
+const QString kLocked = QStringLiteral("Close the wallet to change these settings.");
 }
 
-void ZcashWalletUiBackend::setProxy(QString proxy) {
-    setLastError({});
-    const QJsonObject cfg{{"proxy", proxy.trimmed()}, {"proxyRequired", true}};
-    if (ok(modules().zcash_wallet_backend.set_proxy(compact(cfg)), "proxy")) { loadServers(); loadServerHealth(); }
+// Reloads what the change touched and returns the refusal, if any.
+QString ZcashWalletUiBackend::settingsChange(const QString &reply) {
+    loadServers();
+    loadServerHealth();
+    const QJsonObject o = parse(reply);
+    return o.value("ok").toBool() ? QString() : o.value("error").toString(QStringLiteral("the wallet backend did not answer"));
+}
+
+// "direct" is no proxy: only the user's own network and servers set to skip Tor are reached.
+QString ZcashWalletUiBackend::setProxy(QString proxy) {
+    if (walletOpen()) return kLocked;
+    proxy = proxy.trimmed();
+    const QJsonObject cfg{{"proxy", proxy}, {"proxyRequired", proxy != QLatin1String("direct")}};
+    return settingsChange(modules().zcash_wallet_backend.set_proxy(compact(cfg)));
+}
+
+// The list as set_servers takes it, `edit` applied; the node module validates the result.
+QString ZcashWalletUiBackend::editServers(const std::function<QString(QJsonArray &)> &edit) {
+    if (walletOpen()) return kLocked;
+    const QJsonObject current = parse(modules().zcash_wallet_backend.servers());
+    if (!current.value("ok").toBool()) return current.value("error").toString(QStringLiteral("the wallet backend did not answer"));
+    QJsonArray list;
+    for (const QJsonValue &v : current.value("servers").toArray()) {
+        const QJsonObject s = v.toObject();
+        QJsonObject in;
+        for (const char *key : {"id", "url", "operator", "label", "enabled", "classes", "direct"}) in.insert(QLatin1String(key), s.value(QLatin1String(key)));
+        list.append(in);
+    }
+    if (const QString refused = edit(list); !refused.isEmpty()) return refused;
+    return settingsChange(modules().zcash_wallet_backend.set_servers(compact(list)));
+}
+
+QString ZcashWalletUiBackend::addServer(QString address, QString name) {
+    address = address.trimmed();
+    name = name.trimmed();
+    // The host only names the entry: the node module parses and normalizes the URL itself.
+    const QString host = QUrl(address.contains(QLatin1String("://")) ? address : QStringLiteral("http://") + address).host();
+    if (host.isEmpty()) return QStringLiteral("Enter a server address, such as 192.168.1.20 or https://host:443.");
+    if (name.size() > 64) return QStringLiteral("A name is at most 64 characters.");
+    return editServers([&](QJsonArray &list) {
+        QString base = host;
+        base.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]")), QStringLiteral("-"));
+        base.truncate(56);
+        auto taken = [&](const QString &id) {
+            for (const QJsonValue &v : list)
+                if (v.toObject().value("id").toString() == id) return true;
+            return false;
+        };
+        QString id = base;
+        for (int n = 2; taken(id); ++n) id = base + QLatin1Char('-') + QString::number(n);
+        const QString op = (name.isEmpty() ? host : name).left(64);
+        list.append(QJsonObject{{"id", id}, {"url", address}, {"operator", op}, {"label", name}, {"enabled", true}});
+        return QString();
+    });
+}
+
+QString ZcashWalletUiBackend::removeServer(QString id) {
+    return editServers([&](QJsonArray &list) {
+        for (qsizetype i = 0; i < list.size(); ++i) {
+            if (list[i].toObject().value("id").toString() != id) continue;
+            list.removeAt(i);
+            return QString();
+        }
+        return QStringLiteral("%1 is not in the list.").arg(id);
+    });
+}
+
+QString ZcashWalletUiBackend::setServerEnabled(QString id, bool enabled) {
+    return editServers([&](QJsonArray &list) {
+        for (qsizetype i = 0; i < list.size(); ++i) {
+            QJsonObject s = list[i].toObject();
+            if (s.value("id").toString() != id) continue;
+            s.insert("enabled", enabled);
+            list[i] = s;
+            return QString();
+        }
+        return QStringLiteral("%1 is not in the list.").arg(id);
+    });
+}
+
+QString ZcashWalletUiBackend::setServerTor(QString id, bool tor) {
+    return editServers([&](QJsonArray &list) {
+        for (qsizetype i = 0; i < list.size(); ++i) {
+            QJsonObject s = list[i].toObject();
+            if (s.value("id").toString() != id) continue;
+            s.insert("direct", !tor);
+            list[i] = s;
+            return QString();
+        }
+        return QStringLiteral("%1 is not in the list.").arg(id);
+    });
 }
 
 // ---- the local node ------------------------------------------------------------------------
 
 QString ZcashWalletUiBackend::setLocalNode(bool enabled) {
+    if (walletOpen()) return kLocked;
     const QJsonObject o = parse(modules().zcash_wallet_backend.set_local_node(enabled));
     loadServers();
     refreshLocalNode();

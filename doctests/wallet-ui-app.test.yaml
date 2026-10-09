@@ -16,8 +16,8 @@ project_name: logos-zcash-wallet-ui
 
 intro: |
   The whole wallet in one headless run, in Basecamp, against the real backend, wallet core and
-  node module: a regtest chain is mined with the test phrase's coins on it, the app is pointed
-  at its two servers, the wallet is restored from the phrase and opens, and then each flow that moves
+  node module: a regtest chain is mined with the test phrase's coins on it, its two servers are
+  added through the app, the wallet is restored from the phrase and opens, and then each flow that moves
   money runs through the app itself: shielding the transparent coinbase, a send, and the
   ZIP 318 migration of the Orchard coinbase. Every approval types the password into the only
   surface that takes one.
@@ -84,28 +84,18 @@ sections:
           echo $! > miner.pid
           echo "miner $(cat miner.pid)"
         expect_contains: ["miner"]
-      - title: "Give the modules the chain: its upgrade heights, and its two servers"
+      - title: "Give the modules the chain's upgrade heights"
         # A module instance runs regtest when its persistence directory holds regtest.json, and
-        # Basecamp reuses an instance directory that already exists. The servers are the two
-        # lightwalletd; the proxy is set to "direct" through the app below.
+        # Basecamp reuses an instance directory that already exists. Regtest starts with no
+        # servers: the app adds the two lightwalletd below.
         run: |
           set -eu
           for m in zcash_wallet_core_module zcash_node_module zcash_wallet_backend; do
             mkdir -p "userdir/module_data/$m/doctest"
             cp result-chain/share/regtest/regtest.json "userdir/module_data/$m/doctest/"
           done
-          cat > userdir/module_data/zcash_node_module/doctest/zcash_servers.json <<'JSON'
-          {"version": 1, "networks": {"regtest": {
-            "preset": "custom",
-            "servers": [
-              {"id": "lwd0", "url": "http://127.0.0.1:29061", "operator": "lwd0", "label": "Regtest server 1", "enabled": true,
-               "classes": ["sync", "details", "taddr", "broadcast", "mempool", "tip"], "source": "user"},
-              {"id": "lwd1", "url": "http://127.0.0.1:29063", "operator": "lwd1", "label": "Regtest server 2", "enabled": true,
-               "classes": ["sync", "details", "taddr", "broadcast", "mempool", "tip"], "source": "user"}],
-            "proxy": "socks5h://127.0.0.1:9050", "proxyRequired": true, "suspects": {}, "localNode": false}}}
-          JSON
           find userdir -type f | sort
-        expect_contains: ["zcash_servers.json"]
+        expect_contains: ["zcash_node_module/doctest/regtest.json"]
 
   - title: "Drive the wallet"
     steps:
@@ -135,19 +125,118 @@ sections:
             - name: "Open Servers and privacy"
               action: click_object
               find_value: "networkSettingsButton"
-            - name: "Both servers are listed"
-              action: wait_for
-              texts: ["Regtest server 1", "Regtest server 2"]
+            - name: "The node module's regtest settings are read"
+              action: expect_property
+              find_value: "zcashWalletRoot"
+              property: "serversRead"
+              value: true
               timeout: 15000
-            - name: "Set the proxy to direct, which only a regtest chain on loopback accepts"
+            - name: "Add a public server by its name, as someone with a host of their own would"
               action: set_text
               find_by: "objectName"
-              find_value: "proxyField"
-              value: "direct"
-            - name: "Save the proxy"
+              find_value: "addServerAddress"
+              value: "zec.example"
+            - name: "Name it"
+              action: set_text
+              find_by: "objectName"
+              find_value: "addServerName"
+              value: "Public example"
+            - name: "Add it"
               action: click_object
-              find_value: "saveProxyButton"
-            - name: "Both servers answer, on the same chain"
+              find_value: "addServerButton"
+            - name: "It goes through Tor unless told otherwise"
+              action: expect_property
+              find_value: "torSwitch_zec.example"
+              property: "checked"
+              value: true
+              timeout: 15000
+            - name: "Switch its Tor off: the app asks first"
+              action: click_object
+              find_value: "torSwitch_zec.example"
+            - name: "It says what that server would see"
+              action: expect_property
+              find_value: "torOffConfirm_zec.example"
+              property: "visible"
+              value: true
+              timeout: 5000
+              screenshot: "wallet-ui-tor-off.png"
+            - name: "Reach it without Tor"
+              action: click_object
+              find_value: "skipTorButton_zec.example"
+            - name: "The server is marked, and the app keeps warning about it"
+              action: expect_property
+              find_value: "withoutTorBadge_zec.example"
+              property: "visible"
+              value: true
+              timeout: 15000
+            - name: "...above the servers too"
+              action: expect_property
+              find_value: "directNotice"
+              property: "visible"
+              value: true
+              screenshot: "wallet-ui-without-tor.png"
+            - name: "Remove it"
+              action: click_object
+              find_value: "removeServer_zec.example"
+            - name: "With it gone, nothing is reached without Tor"
+              action: expect_property
+              find_value: "directNotice"
+              property: "visible"
+              value: false
+              timeout: 15000
+
+            - name: "Type the first lightwalletd's address, as someone running their own would"
+              action: set_text
+              find_by: "objectName"
+              find_value: "addServerAddress"
+              value: "127.0.0.1:29061"
+            - name: "Name it"
+              action: set_text
+              find_by: "objectName"
+              find_value: "addServerName"
+              value: "Regtest server 1"
+            - name: "Add it"
+              action: click_object
+              find_value: "addServerButton"
+            - name: "It is listed, as a server on this computer's own network"
+              action: expect_property
+              find_value: "lanBadge_127.0.0.1"
+              property: "visible"
+              value: true
+              timeout: 15000
+            - name: "With one operator in use, the app asks for another"
+              action: expect_property
+              find_value: "oneOperatorNotice"
+              property: "visible"
+              value: true
+              timeout: 15000
+            - name: "Type the second one's address"
+              action: set_text
+              find_by: "objectName"
+              find_value: "addServerAddress"
+              value: "127.0.0.1:29063"
+            - name: "Name it"
+              action: set_text
+              find_by: "objectName"
+              find_value: "addServerName"
+              value: "Regtest server 2"
+            - name: "Add it"
+              action: click_object
+              find_value: "addServerButton"
+            - name: "It is listed too"
+              action: expect_property
+              find_value: "lanBadge_127.0.0.1-2"
+              property: "visible"
+              value: true
+              timeout: 15000
+            - name: "With two, the notice goes: they check each other"
+              action: expect_property
+              find_value: "oneOperatorNotice"
+              property: "visible"
+              value: false
+              timeout: 15000
+
+            - name: "Both servers answer, on the same chain, with no Tor running: they are reached directly"
               # The node module polls each server once a minute.
               action: expect_property
               find_value: "zcashWalletRoot"
@@ -475,6 +564,34 @@ sections:
               value: false
               timeout: 60000
               screenshot: "wallet-ui-activity.png"
+
+            - name: "Go to Settings"
+              action: call_method
+              find_value: "zcashWalletRoot"
+              method: "selectTab"
+              args: [4]
+            - name: "With a wallet open, the network settings show but do not change"
+              action: expect_property
+              find_value: "networkLockedNotice"
+              property: "visible"
+              value: true
+              timeout: 15000
+              screenshot: "wallet-ui-settings-locked.png"
+            - name: "...no server can be added"
+              action: expect_property
+              find_value: "addServerPane"
+              property: "visible"
+              value: false
+            - name: "...the proxy cannot be edited"
+              action: expect_property
+              find_value: "proxyField"
+              property: "readOnly"
+              value: true
+            - name: "...nor a server set aside"
+              action: expect_property
+              find_value: "serverSwitch_127.0.0.1"
+              property: "visible"
+              value: false
 
   - title: "Stop the chain"
     steps:
