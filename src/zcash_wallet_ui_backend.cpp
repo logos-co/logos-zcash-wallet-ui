@@ -87,6 +87,7 @@ QJsonObject withZec(QJsonObject b) {
         p.insert("spendableZec", zec(spendable));
         p.insert("pendingZec", zec(total - spendable));
         p.insert("totalZec", zec(total));
+        p.insert("uneconomicZec", zec(zat(p.value("uneconomic"))));
         it.value() = p;
     }
     b.insert("pools", pools);
@@ -99,7 +100,7 @@ QJsonObject withZec(QJsonObject b) {
     QJsonObject orchard = b.value("orchardToMigrate").toObject();
     addZec(orchard, {"spendable", "total"});
     b.insert("orchardToMigrate", orchard);
-    b.insert("transparentAddresses", mapObjects(b.value("transparentAddresses").toArray(), {"spendable", "total"}));
+    b.insert("transparentAddresses", mapObjects(b.value("transparentAddresses").toArray(), {"spendable", "total", "uneconomic"}));
     addZec(b, {"total", "shieldingThreshold"});
     return b;
 }
