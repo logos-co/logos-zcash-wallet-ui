@@ -415,6 +415,18 @@ sections:
               value: "0 ZEC + 0.000001 ZEC too small to spend"
               timeout: 180000
               screenshot: "wallet-ui-dust.png"
+            - name: "Activity"
+              action: call_method
+              find_value: "zcashWalletRoot"
+              method: "selectTab"
+              args: [3]
+            - name: "Activity says what that send was for, not only its fee"
+              action: expect_property
+              find_value: "historyIntent"
+              property: "text"
+              value: "0.000001 ZEC to yourself · fee 0.00015 ZEC"
+              timeout: 60000
+              screenshot: "wallet-ui-activity-self.png"
 
             - name: "Back to Home"
               action: call_method

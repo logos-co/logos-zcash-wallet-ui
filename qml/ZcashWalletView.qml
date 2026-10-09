@@ -652,9 +652,21 @@ Item {
         return k || ""
     }
     function txIsTransparent(r) {
-        if (r.kind === "sent") return (r.to || []).some(function (t) { return t.pool === "transparent" })
+        if (r.kind === "sent") return (r.to || []).concat(r.toSelf || []).some(function (t) { return t.pool === "transparent" })
         var pools = r.pools || []
         return pools.length > 0 && pools.every(function (p) { return p === "transparent" })
+    }
+    // What the transaction was for, as Monero shows it. A self-send or a shielding moves an amount
+    // and costs only the fee, so its balance change alone would read as just the fee.
+    function intentLine(r) {
+        var fee = root.zatOf(r.fee) > 0 ? " · fee " + r.feeZec + " ZEC" : ""
+        if (r.kind === "shielded" && root.zatOf(r.shielded) > 0) return r.shieldedZec + " ZEC shielded" + fee
+        if (r.kind === "sent") {
+            var others = root.zatOf(r.sentToOthers), self = root.zatOf(r.sentToSelf)
+            if (others > 0) return "−" + r.sentToOthersZec + " ZEC" + (self > 0 ? " · " + r.sentToSelfZec + " ZEC to yourself" : "") + fee
+            if (self > 0) return r.sentToSelfZec + " ZEC to yourself" + fee
+        }
+        return root.signedZec(r.deltaZec) + " ZEC"
     }
     function signedZec(s) {
         var v = s || "0"
@@ -1474,7 +1486,7 @@ Item {
                                              color: root.txIsTransparent(modelData) ? Theme.palette.warning : Theme.palette.success }
                                 LogosBadge { visible: root.zatOf(modelData.amountMadePublic) > 0; text: "Public amount"
                                              color: Theme.palette.warning }
-                                LogosText { textFormat: Text.PlainText; text: root.signedZec(modelData.deltaZec) + " ZEC" }
+                                LogosText { objectName: "historyIntent"; textFormat: Text.PlainText; text: root.intentLine(modelData) }
                                 LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary; text: root.txStatus(modelData) }
                                 LogosText { textFormat: Text.PlainText; color: Theme.palette.textTertiary; font.pixelSize: 11
                                             text: root.whenOf(modelData.time) }
@@ -1508,6 +1520,19 @@ Item {
                                             wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
                                             text: (modelData.to || []).map(function (t) {
                                                       return root.shortAddress(t.address || "") + " · " + root.poolLabel(t.pool) + " · " + t.amountZec + " ZEC"
+                                                  }).join("\n") }
+                                LogosText { visible: (modelData.toSelf || []).length > 0; text: "To yourself"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                                LogosText { visible: (modelData.toSelf || []).length > 0; textFormat: Text.PlainText; font.pixelSize: 11
+                                            wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
+                                            text: (modelData.toSelf || []).map(function (t) {
+                                                      return root.shortAddress(t.address || "") + " · " + root.poolLabel(t.pool) + " · " + t.amountZec + " ZEC"
+                                                  }).join("\n") }
+                                LogosText { visible: (modelData.from || []).length > 0; text: "From"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                                LogosText { visible: (modelData.from || []).length > 0; textFormat: Text.PlainText; font.pixelSize: 11
+                                            wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
+                                            text: (modelData.from || []).map(function (f) {
+                                                      return root.shortAddress(f.address || "") + " · " + f.amountZec + " ZEC"
+                                                             + (f.coins > 1 ? " in " + f.coins + " coins" : "")
                                                   }).join("\n") }
                                 LogosText { visible: (modelData.memos || []).length > 0; text: "Memo"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                                 LogosText { visible: (modelData.memos || []).length > 0; textFormat: Text.PlainText; font.pixelSize: 11

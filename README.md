@@ -16,8 +16,10 @@ It talks only to `zcash_wallet_backend`.
   and any amount that becomes public. The password approves it.
 - **Receive:** a shielded Unified Address, and a transparent address that is replaced once
   it is paid, each with a QR code.
-- **History**, with a run's migration transactions under one heading, and **settings**: wallets, password, recovery phrase, viewing key, servers
-  and proxy.
+- **History**, with a run's migration transactions under one heading. Each row says what the
+  transaction was for: an amount sent, sent to yourself, or shielded, with its fee, rather than
+  only the balance change.
+- **Settings:** wallets, password, recovery phrase, viewing key, servers and proxy.
 - **Use my local node** (Servers and privacy): reads come from `zebrad_module`'s node over
   Logos IPC; sends still go to the servers over Tor, and with no server enabled the node
   broadcasts them itself, without Tor. The pane shows the node's state, height and peers, or
