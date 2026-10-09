@@ -1,6 +1,9 @@
 #pragma once
 
+#include <functional>
+
 #include <QElapsedTimer>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
@@ -46,8 +49,11 @@ public:
     QString addressValid(QString text) override;
     void refreshHistory() override;
     void showHistoryPage(int page) override;
-    void applyPreset(QString name) override;
-    void setProxy(QString proxy) override;
+    QString setProxy(QString proxy) override;
+    QString addServer(QString address, QString name) override;
+    QString removeServer(QString id) override;
+    QString setServerEnabled(QString id, bool enabled) override;
+    QString setServerTor(QString id, bool tor) override;
     QString setLocalNode(bool enabled) override;
     void refreshLocalNode() override;
 
@@ -58,6 +64,8 @@ private:
     void say(const QString &line);
     bool ok(const QString &reply, const QString &context);
     bool walletOpen() const;
+    QString editServers(const std::function<QString(QJsonArray &)> &edit);
+    QString settingsChange(const QString &reply);
     void loadStatus();
     void loadRegistry();
     void loadSync();

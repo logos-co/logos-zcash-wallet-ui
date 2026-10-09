@@ -93,11 +93,20 @@ class ZcashWalletUi
     SLOT(QString addressValid(QString text))
     SLOT(void refreshHistory())
     SLOT(void showHistoryPage(int page))
-    SLOT(void applyPreset(QString name))
-    // socks5h://host:port; the proxy is always required.
-    SLOT(void setProxy(QString proxy))
-    // Reads from zebrad_module over Logos IPC; broadcasts stay on the servers over Tor.
-    // Returns "" or the refusal: the servers sheet is modal, so lastError would sit behind it.
+
+    // ---- servers and privacy: refused while a wallet is open, applied when one opens ----
+    // Each returns "" or the refusal: the servers sheet is modal, so lastError would sit behind it.
+    // Tor's socks5h://host:port, which every server goes through unless it is set to skip Tor.
+    SLOT(QString setProxy(QString proxy))
+    // A URL, or a bare host[:port], and an optional name. The node module normalizes the URL: a
+    // host on the user's network takes http and port 9067, any other https.
+    SLOT(QString addServer(QString address, QString name))
+    SLOT(QString removeServer(QString id))
+    SLOT(QString setServerEnabled(QString id, bool enabled))
+    // Off: the server is reached without Tor. https servers only: the user's own network never
+    // goes through Tor, and an onion service always does.
+    SLOT(QString setServerTor(QString id, bool tor))
+    // Reads from zebrad_module over Logos IPC; broadcasts stay on the servers.
     SLOT(QString setLocalNode(bool enabled))
     SLOT(void refreshLocalNode())
 }

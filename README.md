@@ -20,8 +20,20 @@ It talks only to `zcash_wallet_backend`.
   transaction was for: an amount sent, sent to yourself, or shielded, with its fee, rather than
   only the balance change.
 - **Settings:** wallets, password, recovery phrase, viewing key, servers and proxy.
+- **Servers and privacy:** every server has a **Use** switch, and you can add servers of your
+  own by address, such as `192.168.1.20` or `zebra.lan:9067`, and remove them.
+  - Servers from more than one operator check each other, as the info button explains. Blocks
+    come from each operator in turn and must fit together. A transaction one server accepts
+    must reach another operator. If one operator goes down, another keeps the wallet working.
+    A notice asks for a second operator when only one is in use.
+  - Servers on your own network are reached directly, since Tor cannot reach them.
+  - Every other https server has its own **Tor** switch, on by default. Turning it off first
+    says what that server would see, and a notice names every server reached without Tor.
+  - An onion service always goes through Tor.
+  - While a wallet is open these settings show but do not change; they apply when a wallet
+    opens.
 - **Use my local node** (Servers and privacy): reads come from `zebrad_module`'s node over
-  Logos IPC; sends still go to the servers over Tor, and with no server enabled the node
+  Logos IPC; sends still go to the servers, and with no server enabled the node
   broadcasts them itself, without Tor. The pane shows the node's state, height and peers, or
   that it is not installed or not running for this network, and opens the Zcash Node app
   (`zcash.node.configure`). It applies the next time a wallet opens. The servers take turns
