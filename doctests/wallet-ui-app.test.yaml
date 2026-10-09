@@ -160,6 +160,12 @@ sections:
             - name: "Open Servers and privacy"
               action: click_object
               find_value: "networkSettingsButton"
+            - name: "The sheet opens"
+              action: expect_property
+              find_value: "networkSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "The node module's regtest settings are read"
               action: expect_property
               find_value: "zcashWalletRoot"
@@ -288,6 +294,12 @@ sections:
             - name: "Open Restore"
               action: click_object
               find_value: "restoreWalletButton"
+            - name: "The restore sheet opens"
+              action: expect_property
+              find_value: "restoreWalletSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "Name the wallet"
               action: set_text
               find_by: "objectName"
@@ -376,6 +388,12 @@ sections:
             - name: "Approve"
               action: click_object
               find_value: "approveSendButton"
+            - name: "The password sheet opens"
+              action: expect_property
+              find_value: "approveSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "Type the password"
               action: set_text
               find_by: "objectName"
@@ -445,6 +463,12 @@ sections:
             - name: "Approve"
               action: click_object
               find_value: "approveSendButton"
+            - name: "The password sheet opens"
+              action: expect_property
+              find_value: "approveSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "Type the password"
               action: set_text
               find_by: "objectName"
@@ -472,6 +496,12 @@ sections:
             - name: "Close the review"
               action: click_object
               find_value: "doneSendButton"
+            - name: "The review is closed"
+              action: expect_property
+              find_value: "reviewSheet"
+              property: "visible"
+              value: false
+              timeout: 15000
 
             - name: "Receive hands out the phrase's second transparent address: the first holds the coinbase"
               # External index 1 of the all-"abandon" phrase, derived as the core's regtest_keys
@@ -510,6 +540,12 @@ sections:
             - name: "Approve it anyway"
               action: click_object
               find_value: "approveSendButton"
+            - name: "The password sheet opens"
+              action: expect_property
+              find_value: "approveSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "Type the password"
               action: set_text
               find_by: "objectName"
@@ -527,6 +563,12 @@ sections:
             - name: "Close its review"
               action: click_object
               find_value: "doneSendButton"
+            - name: "The review is closed"
+              action: expect_property
+              find_value: "reviewSheet"
+              property: "visible"
+              value: false
+              timeout: 15000
             - name: "Home"
               action: call_method
               find_value: "zcashWalletRoot"
@@ -570,6 +612,12 @@ sections:
             - name: "Approve"
               action: click_object
               find_value: "approveMigrationButton"
+            - name: "The password sheet opens"
+              action: expect_property
+              find_value: "approveSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "Type the password"
               action: set_text
               find_by: "objectName"
