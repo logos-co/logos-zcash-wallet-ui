@@ -13,6 +13,11 @@ project_name: logos-zcash-wallet-ui
 # zebrad on libzebrad_c and two lightwalletd on loopback (logos-zebra-nix), mined by the wallet
 # core's own chain script. The phrase below is BIP-39's all-"abandon" test vector, and the
 # addresses are its regtest ones, as the core's `regtest_keys` example prints them.
+#
+# On Windows the nix steps do not run: logos-windows-ci cross-builds the same outputs on Linux
+# (Basecamp's app-standalone-portable, the modules' install-portable, the chain's Windows
+# builds) and stages each under the name the Unix step gives its out-link. Every other step is
+# the same on all three, run there by Git Bash.
 
 intro: |
   The whole wallet in one headless run, in Basecamp, against the real backend, wallet core and
@@ -26,6 +31,7 @@ sections:
   - title: "Build Basecamp and the module tree"
     steps:
       - title: "Build Basecamp's standalone host, the app, and the modules it depends on"
+        platform: [linux, macos]
         run: |
           set -eu
           nix build 'github:logos-co/logos-basecamp#app-standalone' --no-write-lock-file -o result-basecamp
@@ -34,35 +40,60 @@ sections:
           nix build 'github:logos-co/logos-zcash-wallet-core-module{release}#install' --no-write-lock-file -o result-core
           nix build 'github:logos-co/logos-zcash-wallet-backend{release}#install' --no-write-lock-file -o result-backend
           nix build 'github:logos-co/logos-zcash-wallet-ui{release}#install' --no-write-lock-file -o result-wallet
-          mkdir -p tree/modules
-          cp -rL result-node/modules/* result-core/modules/* result-backend/modules/* tree/modules/
-          chmod -R u+w tree
-          ls tree/modules result-wallet/plugins
+          ls result-wallet/plugins
         code_block: |
           nix build 'github:logos-co/logos-basecamp#app-standalone' -o result-basecamp
           nix build 'github:logos-co/logos-qt-mcp' -o result-mcp
-          for m in node-module wallet-core-module wallet-backend wallet-ui; do
-            nix build "github:logos-co/logos-zcash-$m#install" -o "result-$m"
-          done
+          nix build 'github:logos-co/logos-zcash-node-module#install' -o result-node
+          nix build 'github:logos-co/logos-zcash-wallet-core-module#install' -o result-core
+          nix build 'github:logos-co/logos-zcash-wallet-backend#install' -o result-backend
+          nix build 'github:logos-co/logos-zcash-wallet-ui#install' -o result-wallet
+        expect_contains: ["zcash_wallet_ui"]
+      - title: "On Windows, the same builds, cross-built and staged by CI"
+        platform: [windows]
+        run: |
+          set -eu
+          ls result-basecamp/bin/LogosBasecamp.exe result-mcp/test-framework/framework.mjs
+          ls result-wallet/plugins
+        expect_contains: ["LogosBasecamp.exe", "zcash_wallet_ui"]
+      - title: "Put the modules the app depends on where Basecamp looks for them"
+        platform: [linux, macos, windows]
+        run: |
+          set -eu
           mkdir -p tree/modules
-          cp -rL result-node-module/modules/* result-wallet-core-module/modules/* \
-                 result-wallet-backend/modules/* tree/modules/
+          cp -rL result-node/modules/* result-core/modules/* result-backend/modules/* tree/modules/
           chmod -R u+w tree
-        expect_contains: ["zcash_wallet_ui", "zcash_wallet_backend", "zcash_wallet_core_module", "zcash_node_module"]
+          ls tree/modules
+        expect_contains: ["zcash_wallet_backend", "zcash_wallet_core_module", "zcash_node_module"]
 
   - title: "Mine a regtest chain with the wallet's coins on it"
     steps:
       - title: "Build zebrad on libzebrad_c, lightwalletd, and the wallet core's chain script"
+        platform: [linux, macos]
         run: |
           set -eu
           nix build 'github:logos-co/logos-zebra-nix{release}#regtest-zebrad' --no-write-lock-file -o result-zebrad
           nix build 'github:logos-co/logos-zebra-nix{release}#lightwalletd' --no-write-lock-file -o result-lwd
           nix build 'github:logos-co/logos-zcash-wallet-core-module{release}#regtest-chain' --no-write-lock-file -o result-chain
+          ls result-zebrad/bin result-lwd/bin
+        expect_contains: ["zebrad", "lightwalletd"]
+      - title: "On Windows, the same three, cross-built and staged by CI"
+        # bin/zebrad is a Git Bash wrapper around zebrad-c-smoke.exe beside zebrad_c.dll.
+        platform: [windows]
+        run: |
+          set -eu
+          ls result-zebrad/bin result-lwd/bin
+        expect_contains: ["zebrad_c.dll", "lightwalletd.exe"]
+      - title: "Point the chain script at them"
+        platform: [linux, macos, windows]
+        run: |
+          set -eu
           printf 'export ZEBRAD=%s LIGHTWALLETD=%s CHAIN_DIR=%s\n' \
-            "$PWD/result-zebrad/bin/zebrad" "$PWD/result-lwd/bin/lightwalletd" "$PWD/chain" > chain.env
+            "$PWD/result-zebrad/bin/zebrad" "$PWD/result-lwd/bin/lightwalletd{exe}" "$PWD/chain" > chain.env
           cat result-chain/share/regtest/regtest.json
         expect_contains: ['"nu6_3"']
       - title: "Mine Orchard coinbase, transparent coinbase, then Ironwood coinbase to the phrase's addresses"
+        platform: [linux, macos, windows]
         # 20 Orchard blocks to migrate, transparent ones to shield, 20 Ironwood ones to spend,
         # then 130 more so the transparent coinbase matures.
         run: |
@@ -73,6 +104,7 @@ sections:
             tmBsTi2xWTjUdEXnuTceL7fecEQKeWaPDJd
         expect_contains: ["height 250"]
       - title: "Keep mining a block every few seconds, so what the app sends gets mined"
+        platform: [linux, macos, windows]
         run: |
           set -eu
           cat > miner.sh <<'SH'
@@ -85,6 +117,7 @@ sections:
           echo "miner $(cat miner.pid)"
         expect_contains: ["miner"]
       - title: "Give the modules the chain's upgrade heights"
+        platform: [linux, macos, windows]
         # A module instance runs regtest when its persistence directory holds regtest.json, and
         # Basecamp reuses an instance directory that already exists. Regtest starts with no
         # servers: the app adds the two lightwalletd below.
@@ -98,10 +131,12 @@ sections:
         expect_contains: ["zcash_node_module/doctest/regtest.json"]
 
   - title: "Drive the wallet"
+    platform: [linux, macos, windows]
     steps:
       - title: "Restore the wallet, then shield, send and migrate"
         ui_test:
-          launch: "env QT_FORCE_STDERR_LOGGING=1 QML_INSPECTOR_PORT=3768 ./result-basecamp/bin/LogosBasecamp --module ./result-wallet --modules-dir ./tree/modules --user-dir ./userdir"
+          # LOGOS_NO_SCHEME_REGISTER: a test run leaves the machine's logos:// handler alone.
+          launch: "env QT_FORCE_STDERR_LOGGING=1 QML_INSPECTOR_PORT=3768 LOGOS_NO_SCHEME_REGISTER=1 ./result-basecamp/bin/LogosBasecamp{exe} --module ./result-wallet --modules-dir ./tree/modules --user-dir ./userdir"
           qt_mcp: "result-mcp"
           launch_timeout: 600
           tests:
@@ -125,6 +160,12 @@ sections:
             - name: "Open Servers and privacy"
               action: click_object
               find_value: "networkSettingsButton"
+            - name: "The sheet opens"
+              action: expect_property
+              find_value: "networkSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "The node module's regtest settings are read"
               action: expect_property
               find_value: "zcashWalletRoot"
@@ -253,6 +294,12 @@ sections:
             - name: "Open Restore"
               action: click_object
               find_value: "restoreWalletButton"
+            - name: "The restore sheet opens"
+              action: expect_property
+              find_value: "restoreWalletSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "Name the wallet"
               action: set_text
               find_by: "objectName"
@@ -341,6 +388,12 @@ sections:
             - name: "Approve"
               action: click_object
               find_value: "approveSendButton"
+            - name: "The password sheet opens"
+              action: expect_property
+              find_value: "approveSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "Type the password"
               action: set_text
               find_by: "objectName"
@@ -410,6 +463,12 @@ sections:
             - name: "Approve"
               action: click_object
               find_value: "approveSendButton"
+            - name: "The password sheet opens"
+              action: expect_property
+              find_value: "approveSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "Type the password"
               action: set_text
               find_by: "objectName"
@@ -437,6 +496,12 @@ sections:
             - name: "Close the review"
               action: click_object
               find_value: "doneSendButton"
+            - name: "The review is closed"
+              action: expect_property
+              find_value: "reviewSheet"
+              property: "visible"
+              value: false
+              timeout: 15000
 
             - name: "Receive hands out the phrase's second transparent address: the first holds the coinbase"
               # External index 1 of the all-"abandon" phrase, derived as the core's regtest_keys
@@ -475,6 +540,12 @@ sections:
             - name: "Approve it anyway"
               action: click_object
               find_value: "approveSendButton"
+            - name: "The password sheet opens"
+              action: expect_property
+              find_value: "approveSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "Type the password"
               action: set_text
               find_by: "objectName"
@@ -492,6 +563,12 @@ sections:
             - name: "Close its review"
               action: click_object
               find_value: "doneSendButton"
+            - name: "The review is closed"
+              action: expect_property
+              find_value: "reviewSheet"
+              property: "visible"
+              value: false
+              timeout: 15000
             - name: "Home"
               action: call_method
               find_value: "zcashWalletRoot"
@@ -535,6 +612,12 @@ sections:
             - name: "Approve"
               action: click_object
               find_value: "approveMigrationButton"
+            - name: "The password sheet opens"
+              action: expect_property
+              find_value: "approveSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
             - name: "Type the password"
               action: set_text
               find_by: "objectName"
@@ -594,6 +677,7 @@ sections:
               value: false
 
   - title: "Stop the chain"
+    platform: [linux, macos, windows]
     steps:
       - title: "Stop the miner, both lightwalletd and zebrad"
         run: |

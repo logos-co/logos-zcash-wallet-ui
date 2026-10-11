@@ -8,6 +8,10 @@ name: zcash-wallet-ui Doc-Tests
 # each step in a throwaway working directory, so a spec cannot build the checkout in place.
 #
 # No live dependency: the chain is a local regtest one, mined by the spec itself.
+#
+# The `windows` job runs the spec's Windows half: logos-windows-ci cross-builds on Linux what the
+# Unix half builds with nix, stages each output under its out-link's name, and runs the rest of
+# the spec on windows-latest. Its report uploads as doctest-report-windows-latest.
 
 on:
   pull_request:
@@ -80,3 +84,30 @@ jobs:
           name: doctest-report-${{ matrix.os }}
           path: ${{ runner.temp }}/doctest-report.html
           if-no-files-found: warn
+
+  windows:
+    name: zcash-wallet-ui doc-tests (windows-latest)
+    uses: logos-co/logos-windows-ci/.github/workflows/windows-ci.yml@v1
+    secrets: inherit
+    with:
+      targets: default
+      extra-targets: >-
+        {"result-wallet": {"ref": ".#packages.x86_64-windows.install-portable"},
+         "result-basecamp": {"ref": "github:logos-co/logos-basecamp#packages.x86_64-windows.app-standalone-portable"},
+         "result-mcp": {"ref": "github:logos-co/logos-qt-mcp#packages.x86_64-linux.default"},
+         "result-node": {"ref": "github:logos-co/logos-zcash-node-module#packages.x86_64-windows.install-portable"},
+         "result-core": {"ref": "github:logos-co/logos-zcash-wallet-core-module#packages.x86_64-windows.install-portable"},
+         "result-backend": {"ref": "github:logos-co/logos-zcash-wallet-backend#packages.x86_64-windows.install-portable"},
+         "result-zebrad": {"ref": "github:logos-co/logos-zebra-nix#packages.x86_64-windows.regtest-zebrad"},
+         "result-lwd": {"ref": "github:logos-co/logos-zebra-nix#packages.x86_64-windows.lightwalletd"},
+         "result-chain": {"ref": "github:logos-co/logos-zcash-wallet-core-module#packages.x86_64-windows.regtest-chain"}}
+      # The modules import Qt and GCC's runtime from Basecamp's bin/, as they do at runtime.
+      assemble: >-
+        {"result-wallet": ["result-basecamp/bin"], "result-node": ["result-basecamp/bin"],
+         "result-core": ["result-basecamp/bin"], "result-backend": ["result-basecamp/bin"]}
+      doctest-spec: doctests/wallet-ui-app.test.yaml
+      doctest-artifact: doctest-report
+      # Measured 646 derivations on a cold cache (2026-10-09), none of them Qt: the node, wallet
+      # core and Zebra crate graphs for Windows.
+      cold-derivation-budget: 700
+      timeout-minutes: 120
