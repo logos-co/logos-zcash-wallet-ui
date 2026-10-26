@@ -74,6 +74,18 @@ Item {
     readonly property var spendPool: balancesReady ? (balances.spendPool || {}) : ({})
     readonly property var transparentPool: balancesReady ? ((balances.pools || {}).transparent || {}) : ({})
     readonly property var transparentAddresses: balancesReady && Array.isArray(balances.transparentAddresses) ? balances.transparentAddresses : []
+    // Home's rows key on the address alone: a new block changes amounts, not rows, so a Shield
+    // button is not destroyed and rebuilt under a click.
+    property var transparentAddressList: []
+    onTransparentAddressesChanged: {
+        var next = transparentAddresses.map(function (a) { return a.address })
+        if (next.join(",") !== transparentAddressList.join(",")) transparentAddressList = next
+    }
+    readonly property var transparentByAddress: {
+        var m = {}
+        transparentAddresses.forEach(function (a) { m[a.address] = a })
+        return m
+    }
     // Orchard funds, spend-only since NU6.3, waiting to migrate: { spendable, total } in zatoshis.
     readonly property var orchard: balancesReady ? (balances.orchardToMigrate || {}) : ({})
     // ZIP 315's un-economic balance: below this, shielding costs more than it moves.
@@ -1228,27 +1240,29 @@ Item {
                                 }
                                 // One Shield per address: shielding several in one transaction links them (ZIP 315).
                                 Repeater {
-                                    model: root.transparentAddresses
+                                    model: root.transparentAddressList
                                     RowLayout {
+                                        id: addressRow
+                                        readonly property var row: root.transparentByAddress[modelData] || ({})
                                         spacing: Theme.spacing.small
-                                        LogosText { textFormat: Text.PlainText; font.pixelSize: 12; text: modelData.address }
-                                        LogosText { objectName: "transparentAmount_" + modelData.address
+                                        LogosText { textFormat: Text.PlainText; font.pixelSize: 12; text: modelData }
+                                        LogosText { objectName: "transparentAmount_" + modelData
                                                     textFormat: Text.PlainText; font.pixelSize: 12; color: Theme.palette.textSecondary
-                                                    text: modelData.totalZec + " ZEC" + (root.zatOf(modelData.uneconomic) > 0
-                                                          ? " + " + modelData.uneconomicZec + " ZEC too small to spend" : "") }
+                                                    text: addressRow.row.totalZec + " ZEC" + (root.zatOf(addressRow.row.uneconomic) > 0
+                                                          ? " + " + addressRow.row.uneconomicZec + " ZEC too small to spend" : "") }
                                         LogosButton {
                                             objectName: "shieldButton"
-                                            visible: root.zatOf(modelData.spendable) >= root.shieldThreshold
+                                            visible: root.zatOf(addressRow.row.spendable) >= root.shieldThreshold
                                             text: "Shield"
                                             enabled: root.ready && !root.sendLive
-                                            onClicked: root.shield(modelData.address)
+                                            onClicked: root.shield(modelData)
                                         }
                                         LogosText {
-                                            visible: root.zatOf(modelData.spendable) < root.shieldThreshold
+                                            visible: root.zatOf(addressRow.row.spendable) < root.shieldThreshold
                                             font.pixelSize: 12
                                             color: Theme.palette.textSecondary
-                                            text: root.zatOf(modelData.total) >= root.shieldThreshold ? "Waiting for confirmations"
-                                                  : root.zatOf(modelData.total) > 0 ? "Too small to shield" : "Too small to spend"
+                                            text: root.zatOf(addressRow.row.total) >= root.shieldThreshold ? "Waiting for confirmations"
+                                                  : root.zatOf(addressRow.row.total) > 0 ? "Too small to shield" : "Too small to spend"
                                         }
                                     }
                                 }
