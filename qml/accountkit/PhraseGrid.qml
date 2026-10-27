@@ -1,6 +1,7 @@
 // A recovery phrase, typed one word to a numbered field and shown as typed: a hidden phrase can't
 // be checked against the paper it was written on. Pasting a phrase into any field spreads it over
 // the fields from there; so does setting `text`, which reads back as the words, one space apart.
+// Read-only, it shows a phrase to be written down, numbered as it will be typed back.
 import QtQuick
 import QtQuick.Layouts
 import Logos.Controls
@@ -10,13 +11,17 @@ ColumnLayout {
     id: grid
     spacing: Theme.spacing.small
 
-    /// How many words: 12, 15, 18, 21 or 24.
+    /// How many words: one of `counts`.
     property int count: 12
     /// The words typed so far, one space apart.
     property string text: ""
     /// Each field's word, by position.
     property var words: []
-    readonly property var counts: [12, 15, 18, 21, 24]
+    /// The lengths the chooser offers. An app whose phrases have one length gives that one alone,
+    /// and the chooser hides.
+    property var counts: [12, 15, 18, 21, 24]
+    /// Shows the words without letting them change, and hides the chooser.
+    property bool readOnly: false
     /// Every field has a word.
     readonly property bool complete: words.length === count && words.every(function (w) { return w.length > 0 })
     property bool writing: false
@@ -85,11 +90,17 @@ ColumnLayout {
         place(text.trim().length ? text.trim().split(/\s+/) : [], 0)
     }
     onCountChanged: if (!placing) place([], 0)
+    // A count the app does not offer becomes its first.
+    onCountsChanged: if (counts.indexOf(count) < 0) count = counts[0]
     // A field made after the words came (the count grew) shows its word too.
-    Component.onCompleted: show()
+    Component.onCompleted: {
+        if (counts.indexOf(count) < 0) count = counts[0]
+        show()
+    }
 
     RowLayout {
         Layout.fillWidth: true
+        visible: grid.counts.length > 1 && !grid.readOnly
         LogosText { text: "Words"; color: Theme.palette.textSecondary }
         LogosComboBox {
             objectName: grid.objectName + "Count"
@@ -113,6 +124,7 @@ ColumnLayout {
                 objectName: grid.objectName + "_" + index
                 Layout.fillWidth: true
                 leftPadding: 36
+                readOnly: grid.readOnly
                 Component.onCompleted: {
                     textInput.inputMethodHints = Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhSensitiveData
                     text = grid.words[index] || ""

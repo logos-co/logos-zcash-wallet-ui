@@ -1791,11 +1791,26 @@ Item {
                                       ? "Your recovery phrase. Anyone who has it can spend this wallet's funds. Write it down and keep it offline."
                                       : "Your viewing key. Whoever holds it sees every past and future transaction of this wallet, and sharing it cannot be undone."
                             }
+                            // The phrase in the numbered fields it is typed back into; the key as text.
+                            Accounts.PhraseGrid {
+                                id: secretWords
+                                objectName: "secretWords"
+                                visible: root.secretKind === "phrase"
+                                Layout.fillWidth: true
+                                counts: [24]
+                                readOnly: true
+                            }
                             LogosSelectableText {
                                 objectName: "secretText"
+                                visible: root.secretKind !== "phrase"
                                 Layout.fillWidth: true
                                 wrapMode: TextEdit.WrapAtWordBoundaryOrAnywhere
                                 text: root.shownSecret
+                            }
+                            // Set, not bound: the grid writes its own text back as it fills.
+                            Connections {
+                                target: root
+                                function onShownSecretChanged() { secretWords.text = root.secretKind === "phrase" ? root.shownSecret : "" }
                             }
                             RowLayout {
                                 LogosCopyButton { value: root.shownSecret }
@@ -2310,7 +2325,7 @@ Item {
         title: "Restore from a recovery phrase"
         anchors.centerIn: parent
         width: Math.min(parent.width - 40, 620)
-        onOpened: { rName.text = ""; rPhrase.count = 24; rPhrase.text = ""; rWhen.text = ""; rPw.text = ""; rPw2.text = "" }
+        onOpened: { rName.text = ""; rPhrase.text = ""; rWhen.text = ""; rPw.text = ""; rPw2.text = "" }
         onClosed: { rPhrase.text = ""; rPw.text = ""; rPw2.text = "" }
         contentItem: ColumnLayout {
             spacing: Theme.spacing.small
@@ -2318,9 +2333,7 @@ Item {
                              placeholderText: "Wallet name: letters, digits, - and _"
                              validator: RegularExpressionValidator { regularExpression: /^[A-Za-z0-9_-]{0,64}$/ } }
             // One word to a numbered field, shown as typed, so it can be checked against the paper.
-            Accounts.PhraseGrid { id: rPhrase; objectName: "restorePhraseField"; count: 24; Layout.fillWidth: true }
-            LogosText { visible: rPhrase.count !== 24; color: Theme.palette.textSecondary
-                        text: "A Zcash recovery phrase has 24 words." }
+            Accounts.PhraseGrid { id: rPhrase; objectName: "restorePhraseField"; counts: [24]; Layout.fillWidth: true }
             LogosTextField { id: rWhen; objectName: "restoreBirthdayField"; Layout.fillWidth: true
                              placeholderText: root.activeNetwork === "testnet" ? "Block height first used at (optional)"
                                                                                : "Month first used, such as 2024-05, or a block height (optional)" }
@@ -2334,7 +2347,7 @@ Item {
             LogosButton {
                 objectName: "restoreButton"; text: "Restore"
                 variant: LogosButton.Variant.Primary
-                enabled: root.ready && !root.busy && rName.text !== "" && rPhrase.complete && rPhrase.count === 24
+                enabled: root.ready && !root.busy && rName.text !== "" && rPhrase.complete
                          && root.birthdayFor(rWhen.text) > 0 && rPw.text !== "" && rPw.text === rPw2.text
                 onClicked: {
                     backend.restoreWallet(rName.text, rPw.text, root.normalisePhrase(rPhrase.text), root.birthdayFor(rWhen.text))

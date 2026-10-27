@@ -21,9 +21,11 @@ It talks only to `zcash_wallet_backend`.
   only the balance change.
 - **Settings:** wallets, password, recovery phrase, viewing key, servers and proxy.
 - **Restore** takes the 24-word phrase one word to a numbered field, shown as typed so it can be
-  checked against the paper: the account kit's `PhraseGrid`, vendored in `qml/accountkit/` by
-  `logos-account-kit/scripts/vendor.sh` at the commit in its `VERSION`. A phrase pasted into
-  any field spreads over the rest. CI checks the copy against that commit.
+  checked against the paper; a phrase pasted into any field spreads over the rest. **Show
+  recovery phrase** in Settings shows it in the same numbered fields, to be written down as it
+  will be typed back. Both are the account kit's `PhraseGrid`, vendored in `qml/accountkit/` by
+  `logos-account-kit/scripts/vendor.sh` at the commit in its `VERSION`; CI checks the copy
+  against that commit.
 - **Servers and privacy:** every server has a **Use** switch, and you can add servers of your
   own by address, such as `192.168.1.20` or `zebra.lan:9067`, and remove them.
   - Servers from more than one operator check each other, as the info button explains. Blocks
