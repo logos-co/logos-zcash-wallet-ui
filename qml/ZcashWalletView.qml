@@ -111,7 +111,15 @@ Item {
     property string localNodeNote: ""
     // Network settings apply when a wallet opens; while one is open they show but do not change.
     readonly property bool networkLocked: walletOpen
-    readonly property string defaultProxy: "socks5h://127.0.0.1:9050"
+    // The proxy setting: "tor" for the Tor that comes with Logos, a socks5h URL for the user's
+    // own, "direct" for none (regtest).
+    readonly property string proxySetting: serversInfo.proxy || ""
+    readonly property bool ownTor: proxySetting.indexOf("socks5h://") === 0
+    // The built-in Tor's { state, progress, detail } while the network uses it, else null.
+    readonly property var tor: health.tor || null
+    readonly property bool torWaiting: tor !== null && tor.state !== "ready"
+    // "Use my own Tor" opened, before an address is saved.
+    property bool ownTorOpen: false
     // Public servers the user set to skip Tor; the user's own network never goes through it.
     readonly property var directServers: serverList.filter(function (s) {
         return s.enabled === true && s.direct === true && !root.isLanUrl(s.url)
@@ -130,7 +138,7 @@ Item {
     // What the proxy, a preset or a server edit refused, shown next to it ("proxy" or "servers").
     property string networkNote: ""
     property string networkNoteAt: ""
-    onNetworkLockedChanged: { torOffAskedFor = ""; networkNote = "" }
+    onNetworkLockedChanged: { torOffAskedFor = ""; networkNote = ""; ownTorOpen = false }
     readonly property bool localNodeAvailable: localNode.available === true
     onLocalNodeAvailableChanged: if (localNodeAvailable) localNodeNote = ""
     readonly property string activeNetwork: ready ? (networks.active || "") : ""
@@ -468,6 +476,8 @@ Item {
         return "Working…"
     }
     function overallLabel(o) {
+        // Every server reads offline while the built-in Tor joins: say what is happening instead.
+        if (o === "offline" && root.torWaiting) return root.torLine()
         if (o === "ok") return "Servers OK"
         if (o === "degraded") return "Servers degraded"
         if (o === "disagreement") return "Servers disagree"
@@ -476,9 +486,21 @@ Item {
         return o
     }
     function overallColor(o) {
+        if (o === "offline" && root.torWaiting) return root.torColor()
         if (o === "ok") return Theme.palette.success
         if (o === "degraded") return Theme.palette.warning
         return Theme.palette.error
+    }
+    function torLine() {
+        var t = root.tor
+        if (!t) return ""
+        if (t.state === "ready") return "Connected to Tor"
+        if (t.state === "connecting") return "Connecting to Tor… " + (t.progress || 0) + "%"
+        return t.state === "blocked" ? "Tor can't connect" : "Tor could not start"
+    }
+    function torColor() {
+        if (!root.torWaiting) return Theme.palette.success
+        return root.tor.state === "connecting" ? Theme.palette.warning : Theme.palette.error
     }
     // server_health() per server, as a list of { id, ... } or a map keyed by id.
     function healthOf(id) {
@@ -775,19 +797,83 @@ Item {
                 message: "These settings apply when a wallet opens. Close the wallet to change them."
             }
 
-            LogosText { text: "Network privacy"; font.pixelSize: 15 }
-            LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
-                        text: "Servers go through this Tor proxy, unless you set one to skip Tor. Servers on your own network "
-                              + "are reached directly, since Tor cannot reach them." }
             RowLayout {
                 Layout.fillWidth: true
-                LogosTextField { id: proxyField; objectName: "proxyField"; Layout.fillWidth: true; readOnly: root.networkLocked
-                                 placeholderText: root.defaultProxy; text: root.serversInfo.proxy || "" }
-                LogosButton {
-                    objectName: "saveProxyButton"; text: "Save proxy"
-                    visible: !root.networkLocked
-                    enabled: root.ready && proxyField.text.trim() !== "" && proxyField.text.trim() !== (root.serversInfo.proxy || "")
-                    onClicked: root.networkCall(backend.setProxy(proxyField.text.trim()), "proxy")
+                LogosText { text: "Network privacy"; font.pixelSize: 15 }
+                LogosInfoButton {
+                    objectName: "privacyInfo"
+                    title: "What each choice reveals"
+                    text: "Through Tor, built in or your own: servers see a Tor address, never this computer's, and your "
+                          + "internet provider sees Tor, not Zcash. Each part of the chain comes over its own circuit, so "
+                          + "servers cannot link the downloads together. It is slower: joining Tor takes a moment when the "
+                          + "app starts, and every request takes longer.\n\n"
+                          + "Without Tor, for a server you choose: that server sees this computer's IP address. It can tie "
+                          + "it to this wallet's transparent addresses, to the transactions it sends and looks up, and to "
+                          + "when you are online. Your internet provider sees that you use Zcash.\n\n"
+                          + "A server on your own network is reached directly, so no one outside your network sees the "
+                          + "requests.\n\n"
+                          + "Either way, shielded balances, addresses and memos stay private: the wallet finds its notes "
+                          + "on this computer."
+                }
+                LogosBadge { objectName: "torBadge"; visible: root.tor !== null; text: root.torLine(); color: root.torColor() }
+                Item { Layout.fillWidth: true }
+            }
+            LogosText {
+                objectName: "privacyLine"
+                Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText; color: Theme.palette.textSecondary
+                text: (root.ownTor ? "Servers are reached through your own Tor at " + root.proxySetting + ". "
+                       : root.proxySetting === "tor" ? "Servers are reached through Tor, which comes with Logos: there is nothing "
+                                                       + "to install or run. They see a Tor address instead of this computer's. "
+                       : "This network uses no proxy: only servers on your own network, and those set to skip Tor, are reached. ")
+                      + "Servers on your own network are always reached directly, since Tor cannot reach them."
+            }
+            LogosProgressBar {
+                objectName: "torProgress"
+                Layout.fillWidth: true
+                visible: root.tor !== null && root.tor.state === "connecting"
+                value: root.tor ? (root.tor.progress || 0) / 100 : 0
+            }
+            LogosNotice {
+                objectName: "torTroubleNotice"
+                Layout.fillWidth: true
+                severity: LogosNotice.Warning
+                shown: root.torWaiting && root.tor.state !== "connecting"
+                title: shown ? root.torLine() : ""
+                message: shown ? (root.tor.detail ? root.tor.detail + ". " : "")
+                                 + "Servers that need Tor are not reached until it can. The app keeps trying. If Tor is blocked "
+                                 + "on this network, use your own Tor with a bridge, or set a server below to skip Tor." : ""
+            }
+            LogosSwitch {
+                objectName: "ownTorSwitch"
+                visible: !root.networkLocked && (root.proxySetting === "tor" || root.ownTor)
+                text: "Use my own Tor instead"
+                checkable: false
+                checked: root.ownTor || root.ownTorOpen
+                enabled: root.ready
+                onClicked: {
+                    if (root.ownTor) root.networkCall(backend.setProxy("tor"), "proxy")
+                    root.ownTorOpen = !root.ownTor && !root.ownTorOpen
+                }
+            }
+            ColumnLayout {
+                objectName: "ownTorPane"
+                Layout.fillWidth: true
+                visible: root.ownTor || root.ownTorOpen
+                spacing: Theme.spacing.tiny
+                LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
+                            text: "For a Tor you already run: a system Tor listens at socks5h://127.0.0.1:9050, Tor Browser at "
+                                  + "socks5h://127.0.0.1:9150. It protects you the same way, with your Tor's own settings, such "
+                                  + "as bridges." }
+                RowLayout {
+                    Layout.fillWidth: true
+                    LogosTextField { id: proxyField; objectName: "proxyField"; Layout.fillWidth: true; readOnly: root.networkLocked
+                                     placeholderText: "socks5h://127.0.0.1:9050"; text: root.ownTor ? root.proxySetting : "" }
+                    LogosButton {
+                        objectName: "saveProxyButton"; text: "Use it"
+                        visible: !root.networkLocked
+                        enabled: root.ready && proxyField.text.trim() !== "" && proxyField.text.trim() !== root.proxySetting
+                        onClicked: root.networkCall(backend.setProxy(proxyField.text.trim()), "proxy")
+                    }
                 }
             }
             LogosNotice {
@@ -919,9 +1005,10 @@ Item {
                             severity: LogosNotice.Warning
                             shown: root.torOffAskedFor === modelData.id && !serverRow.direct && !root.networkLocked
                             title: "Reach " + (modelData.label || modelData.id) + " without Tor?"
-                            message: "It will see this computer's IP address, and can link it to the transactions this wallet "
-                                     + "sends and looks up, and to its transparent addresses. Your internet provider sees that "
-                                     + "you use Zcash."
+                            message: "It will see this computer's IP address. It can tie it to this wallet's transparent "
+                                     + "addresses, to the transactions it sends and looks up, and to when you are online. Your "
+                                     + "internet provider sees that you use Zcash. Shielded balances, addresses and memos stay "
+                                     + "private either way."
                             actions: [
                                 LogosButton { objectName: "skipTorButton_" + modelData.id; text: "Reach it without Tor"
                                               onClicked: { root.torOffAskedFor = ""; root.networkCall(backend.setServerTor(modelData.id, false), "servers") } },
@@ -982,7 +1069,7 @@ Item {
                 LogosText {
                     Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
                     text: "Reads come from your own Zcash node over Logos IPC, so no server sees them. Transactions you send "
-                          + "still go to the servers below. With no server enabled, your node broadcasts them itself, "
+                          + "still go to the servers above. With no server enabled, your node broadcasts them itself, "
                           + "over its own peer connections and without Tor. A change applies the next time a wallet opens."
                 }
                 LogosText {

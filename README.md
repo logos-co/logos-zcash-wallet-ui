@@ -20,8 +20,17 @@ It talks only to `zcash_wallet_backend`.
   transaction was for: an amount sent, sent to yourself, or shielded, with its fee, rather than
   only the balance change.
 - **Settings:** wallets, password, recovery phrase, viewing key, servers and proxy.
-- **Servers and privacy:** every server has a **Use** switch, and you can add servers of your
-  own by address, such as `192.168.1.20` or `zebra.lan:9067`, and remove them.
+- **Servers and privacy:** servers are reached through the Tor that comes with Logos
+  (`tor_module`), with nothing to install or run.
+  - A badge and a progress bar show Tor joining. If it is blocked or cannot start, a notice
+    says why and what to do. While Tor joins, the server badges read "Connecting to Tor"
+    rather than "Servers offline".
+  - **Use my own Tor instead** takes a SOCKS address, such as a system Tor at
+    `socks5h://127.0.0.1:9050` or Tor Browser at `socks5h://127.0.0.1:9150`.
+  - The info button says what each choice reveals: through Tor, without Tor for a server, or
+    a server on your own network.
+  - Every server has a **Use** switch, and you can add servers of your own by address, such
+    as `192.168.1.20` or `zebra.lan:9067`, and remove them.
   - Servers from more than one operator check each other, as the info button explains. Blocks
     come from each operator in turn and must fit together. A transaction one server accepts
     must reach another operator. If one operator goes down, another keeps the wallet working.
