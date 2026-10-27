@@ -36,8 +36,8 @@ sections:
           set -eu
           nix build 'github:logos-co/logos-basecamp#app-standalone' --no-write-lock-file -o result-basecamp
           nix build 'github:logos-co/logos-qt-mcp' --no-write-lock-file -o result-mcp
-          nix build 'github:logos-co/logos-tor-module{release}#install' --no-write-lock-file -o result-tor
-          nix build 'github:logos-co/logos-zcash-node-module{release}#install' --no-write-lock-file -o result-node
+          nix build 'github:logos-co/logos-tor-module/feat/ipc#install' --no-write-lock-file -o result-tor
+          nix build 'github:logos-co/logos-zcash-node-module/feat/built-in-tor#install' --no-write-lock-file -o result-node
           nix build 'github:logos-co/logos-zcash-wallet-core-module{release}#install' --no-write-lock-file -o result-core
           nix build 'github:logos-co/logos-zcash-wallet-backend{release}#install' --no-write-lock-file -o result-backend
           nix build 'github:logos-co/logos-zcash-wallet-ui{release}#install' --no-write-lock-file -o result-wallet
