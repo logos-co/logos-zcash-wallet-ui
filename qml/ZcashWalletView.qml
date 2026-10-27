@@ -3,6 +3,7 @@ import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import Logos.Controls
 import Logos.Theme
+import "accountkit" as Accounts
 
 // The Zcash wallet. Nothing open: the Wallets screen. A wallet open: Home, Send, Receive,
 // Activity and Settings. Secrets cross only as SLOT arguments and return values.
@@ -362,7 +363,6 @@ Item {
     function shortAddress(a) { return a && a.length > 40 ? a.slice(0, 20) + "…" + a.slice(-8) : (a || "") }
     function shortId(s) { return s && s.length > 20 ? s.slice(0, 10) + "…" + s.slice(-8) : (s || "") }
     function whenOf(t) { return t ? new Date(t * 1000).toLocaleString(Qt.locale(), Locale.ShortFormat) : "" }
-    function wordCount(t) { var s = (t || "").trim(); return s === "" ? 0 : s.split(/\s+/).length }
     function normalisePhrase(t) { return (t || "").trim().split(/\s+/).join(" ").toLowerCase() }
     function poolLabel(p) {
         if (p === "ironwood") return "Ironwood"
@@ -2310,18 +2310,17 @@ Item {
         title: "Restore from a recovery phrase"
         anchors.centerIn: parent
         width: Math.min(parent.width - 40, 620)
-        onOpened: { rName.text = ""; rPhrase.text = ""; rWhen.text = ""; rPw.text = ""; rPw2.text = "" }
+        onOpened: { rName.text = ""; rPhrase.count = 24; rPhrase.text = ""; rWhen.text = ""; rPw.text = ""; rPw2.text = "" }
         onClosed: { rPhrase.text = ""; rPw.text = ""; rPw2.text = "" }
         contentItem: ColumnLayout {
             spacing: Theme.spacing.small
             LogosTextField { id: rName; objectName: "restoreNameField"; Layout.fillWidth: true
                              placeholderText: "Wallet name: letters, digits, - and _"
                              validator: RegularExpressionValidator { regularExpression: /^[A-Za-z0-9_-]{0,64}$/ } }
-            LogosTextArea { id: rPhrase; objectName: "restorePhraseField"; placeholderText: "24-word recovery phrase"
-                            Layout.fillWidth: true; Layout.preferredHeight: 90 }
-            LogosText { visible: rPhrase.text.trim() !== "" && root.wordCount(rPhrase.text) !== 24
-                        color: Theme.palette.textSecondary
-                        text: "A recovery phrase has 24 words; this has " + root.wordCount(rPhrase.text) + "." }
+            // One word to a numbered field, shown as typed, so it can be checked against the paper.
+            Accounts.PhraseGrid { id: rPhrase; objectName: "restorePhraseField"; count: 24; Layout.fillWidth: true }
+            LogosText { visible: rPhrase.count !== 24; color: Theme.palette.textSecondary
+                        text: "A Zcash recovery phrase has 24 words." }
             LogosTextField { id: rWhen; objectName: "restoreBirthdayField"; Layout.fillWidth: true
                              placeholderText: root.activeNetwork === "testnet" ? "Block height first used at (optional)"
                                                                                : "Month first used, such as 2024-05, or a block height (optional)" }
@@ -2335,7 +2334,7 @@ Item {
             LogosButton {
                 objectName: "restoreButton"; text: "Restore"
                 variant: LogosButton.Variant.Primary
-                enabled: root.ready && !root.busy && rName.text !== "" && root.wordCount(rPhrase.text) === 24
+                enabled: root.ready && !root.busy && rName.text !== "" && rPhrase.complete && rPhrase.count === 24
                          && root.birthdayFor(rWhen.text) > 0 && rPw.text !== "" && rPw.text === rPw2.text
                 onClicked: {
                     backend.restoreWallet(rName.text, rPw.text, root.normalisePhrase(rPhrase.text), root.birthdayFor(rWhen.text))

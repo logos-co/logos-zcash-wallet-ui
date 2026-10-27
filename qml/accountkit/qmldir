@@ -1,0 +1,5 @@
+module com.logos.module.zcash_wallet_ui.accountkit
+AccountIdentity 1.0 AccountIdentity.qml
+AccountPicker 1.0 AccountPicker.qml
+PhraseGrid 1.0 PhraseGrid.qml
+SignerChips 1.0 SignerChips.qml
