@@ -74,6 +74,18 @@ Item {
     readonly property var spendPool: balancesReady ? (balances.spendPool || {}) : ({})
     readonly property var transparentPool: balancesReady ? ((balances.pools || {}).transparent || {}) : ({})
     readonly property var transparentAddresses: balancesReady && Array.isArray(balances.transparentAddresses) ? balances.transparentAddresses : []
+    // Home's rows key on the address alone: a new block changes amounts, not rows, so a Shield
+    // button is not destroyed and rebuilt under a click.
+    property var transparentAddressList: []
+    onTransparentAddressesChanged: {
+        var next = transparentAddresses.map(function (a) { return a.address })
+        if (next.join(",") !== transparentAddressList.join(",")) transparentAddressList = next
+    }
+    readonly property var transparentByAddress: {
+        var m = {}
+        transparentAddresses.forEach(function (a) { m[a.address] = a })
+        return m
+    }
     // Orchard funds, spend-only since NU6.3, waiting to migrate: { spendable, total } in zatoshis.
     readonly property var orchard: balancesReady ? (balances.orchardToMigrate || {}) : ({})
     // ZIP 315's un-economic balance: below this, shielding costs more than it moves.
@@ -131,8 +143,8 @@ Item {
     // Migration rows gather under one heading, placed where the newest of them was.
     readonly property var historyView: {
         var out = [], moves = [], at = -1
-        for (var i = 0; i < historyRows.length; i++) {
-            var r = historyRows[i]
+        for (let i = 0; i < historyRows.length; i++) {
+            const r = historyRows[i]
             if (r.kind !== "migration") { out.push(r); continue }
             if (at < 0) at = out.length
             moves.push(r)
@@ -229,9 +241,9 @@ Item {
         if (!lastJob.jobId || lastJob.jobId === root.handledJobId) return
         root.handledJobId = lastJob.jobId
         if (lastJob.kind === "open" && root.unlockRequestId !== "" && root.unlockOpenSent) {
-            var opened = lastJob.state === "done"
-            var mine = opened && lastJob.name === root.unlockWallet
-            var err = !opened ? (lastJob.error || "open failed") : (mine ? "" : "a different wallet was opened")
+            const opened = lastJob.state === "done"
+            const mine = opened && lastJob.name === root.unlockWallet
+            const err = !opened ? (lastJob.error || "open failed") : (mine ? "" : "a different wallet was opened")
             logos.respond(root.unlockRequestId, mine, ({}), err)
             root.unlockRequestId = ""
             root.unlockWallet = ""
@@ -239,7 +251,7 @@ Item {
         }
         if (lastJob.state !== "done") return
         if (lastJob.kind === "create" || lastJob.kind === "restore") {
-            var created = lastJob.kind === "create"
+            const created = lastJob.kind === "create"
             if (root.walletOpen) {
                 root.notify(created ? "Wallet created" : "Wallet restored",
                             created ? "Write down its recovery phrase: Settings, Show recovery phrase."
@@ -334,8 +346,8 @@ Item {
     function zatOfZec(t) { var n = Number(t); return isFinite(n) ? Math.round(n * 1e8) : 0 }
     function utf8Bytes(s) {
         var n = 0
-        for (var i = 0; i < s.length; i++) {
-            var c = s.charCodeAt(i)
+        for (let i = 0; i < s.length; i++) {
+            const c = s.charCodeAt(i)
             if (c < 0x80) n += 1
             else if (c < 0x800) n += 2
             else if (c >= 0xD800 && c < 0xDC00) { n += 4; i++ }
@@ -430,7 +442,7 @@ Item {
         var s = root.sync.state || ""
         if (s === "synced") return "Synced to block " + root.fmtHeight(root.sync.tip)
         if (s === "scanning" || s === "downloading") {
-            var eta = root.etaText(root.sync.etaSecs)
+            const eta = root.etaText(root.sync.etaSecs)
             return "Scanning · block " + root.fmtHeight(root.sync.fullyScanned) + " of " + root.fmtHeight(root.sync.tip)
                    + " (" + Math.floor(root.syncFraction() * 100) + "%)" + (eta ? " · " + eta : "")
         }
@@ -472,7 +484,7 @@ Item {
     function healthOf(id) {
         var s = root.health.servers
         if (Array.isArray(s)) {
-            for (var i = 0; i < s.length; i++) if (s[i] && s[i].id === id) return s[i]
+            for (let i = 0; i < s.length; i++) if (s[i] && s[i].id === id) return s[i]
             return null
         }
         return s && s[id] ? s[id] : null
@@ -512,7 +524,7 @@ Item {
     }
     // The label the user knows a server by, or its host.
     function serverName(url) {
-        for (var i = 0; i < root.serverList.length; i++)
+        for (let i = 0; i < root.serverList.length; i++)
             if (root.serverList[i].url === url) return root.serverList[i].label || url
         var m = /^[a-z]+:\/\/([^\/:]+)/.exec(url || "")
         return m ? m[1] : (url || "a server")
@@ -533,7 +545,7 @@ Item {
         var h = m[1].toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "")
         var v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h)
         if (v4) {
-            var a = +v4[1], b = +v4[2]
+            const a = +v4[1], b = +v4[2]
             return a === 127 || a === 10 || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168)
                    || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254)
         }
@@ -647,7 +659,7 @@ Item {
         if (secs < 3600) return Math.max(1, Math.round(secs / 60)) + " min"
         var hours = secs / 3600
         if (hours < 48) {
-            var h = Math.floor(hours), m = Math.round((secs - h * 3600) / 60)
+            const h = Math.floor(hours), m = Math.round((secs - h * 3600) / 60)
             return h + " h" + (m ? " " + m + " min" : "")
         }
         return Math.round(hours / 24) + " days"
@@ -714,7 +726,7 @@ Item {
         var fee = root.zatOf(r.fee) > 0 ? " · fee " + r.feeZec + " ZEC" : ""
         if (r.kind === "shielded" && root.zatOf(r.shielded) > 0) return r.shieldedZec + " ZEC shielded" + fee
         if (r.kind === "sent") {
-            var others = root.zatOf(r.sentToOthers), self = root.zatOf(r.sentToSelf)
+            const others = root.zatOf(r.sentToOthers), self = root.zatOf(r.sentToSelf)
             if (others > 0) return "−" + r.sentToOthersZec + " ZEC" + (self > 0 ? " · " + r.sentToSelfZec + " ZEC to yourself" : "") + fee
             if (self > 0) return r.sentToSelfZec + " ZEC to yourself" + fee
         }
@@ -727,7 +739,7 @@ Item {
     function txStatus(r) {
         if (r.expired) return "expired"
         if (r.pending) {
-            var left = root.zatOf(r.expiryHeight) - root.chainTip
+            const left = root.zatOf(r.expiryHeight) - root.chainTip
             return "pending" + (r.expiryHeight && root.chainTip ? " · expires in " + Math.max(0, left) + " blocks" : "")
         }
         if (!r.height || !root.chainTip) return "mined"
@@ -1228,27 +1240,29 @@ Item {
                                 }
                                 // One Shield per address: shielding several in one transaction links them (ZIP 315).
                                 Repeater {
-                                    model: root.transparentAddresses
+                                    model: root.transparentAddressList
                                     RowLayout {
+                                        id: addressRow
+                                        readonly property var row: root.transparentByAddress[modelData] || ({})
                                         spacing: Theme.spacing.small
-                                        LogosText { textFormat: Text.PlainText; font.pixelSize: 12; text: modelData.address }
-                                        LogosText { objectName: "transparentAmount_" + modelData.address
+                                        LogosText { textFormat: Text.PlainText; font.pixelSize: 12; text: modelData }
+                                        LogosText { objectName: "transparentAmount_" + modelData
                                                     textFormat: Text.PlainText; font.pixelSize: 12; color: Theme.palette.textSecondary
-                                                    text: modelData.totalZec + " ZEC" + (root.zatOf(modelData.uneconomic) > 0
-                                                          ? " + " + modelData.uneconomicZec + " ZEC too small to spend" : "") }
+                                                    text: addressRow.row.totalZec + " ZEC" + (root.zatOf(addressRow.row.uneconomic) > 0
+                                                          ? " + " + addressRow.row.uneconomicZec + " ZEC too small to spend" : "") }
                                         LogosButton {
                                             objectName: "shieldButton"
-                                            visible: root.zatOf(modelData.spendable) >= root.shieldThreshold
+                                            visible: root.zatOf(addressRow.row.spendable) >= root.shieldThreshold
                                             text: "Shield"
                                             enabled: root.ready && !root.sendLive
-                                            onClicked: root.shield(modelData.address)
+                                            onClicked: root.shield(modelData)
                                         }
                                         LogosText {
-                                            visible: root.zatOf(modelData.spendable) < root.shieldThreshold
+                                            visible: root.zatOf(addressRow.row.spendable) < root.shieldThreshold
                                             font.pixelSize: 12
                                             color: Theme.palette.textSecondary
-                                            text: root.zatOf(modelData.total) >= root.shieldThreshold ? "Waiting for confirmations"
-                                                  : root.zatOf(modelData.total) > 0 ? "Too small to shield" : "Too small to spend"
+                                            text: root.zatOf(addressRow.row.total) >= root.shieldThreshold ? "Waiting for confirmations"
+                                                  : root.zatOf(addressRow.row.total) > 0 ? "Too small to shield" : "Too small to spend"
                                         }
                                     }
                                 }
