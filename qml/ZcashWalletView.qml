@@ -109,6 +109,7 @@ Item {
         return s.enabled === true && (!Array.isArray(s.classes) || s.classes.indexOf("broadcast") >= 0)
     })
     property string localNodeNote: ""
+    property string torNote: ""
     // Network settings apply when a wallet opens; while one is open they show but do not change.
     readonly property bool networkLocked: walletOpen
     // The proxy setting: "tor" for the Tor that comes with Logos, a socks5h URL for the user's
@@ -596,6 +597,15 @@ Item {
                     function (e) { root.localNodeNote = e || "" },
                     function () { root.localNodeNote = "The wallet backend did not answer." })
     }
+    // The built-in Tor has its own app.
+    function manageTor() {
+        root.torNote = ""
+        logos.request("tor.manage", ({}), function (res) {
+            if (res.ok || res.error === "cancelled") return
+            root.torNote = res.error === "unavailable" ? "The Tor app is not installed."
+                                                        : "That request did not go through (" + res.error + ")."
+        })
+    }
     // The node has its own app.
     function manageLocalNode() {
         root.localNodeNote = ""
@@ -817,7 +827,16 @@ Item {
                 }
                 LogosBadge { objectName: "torBadge"; visible: root.tor !== null; text: root.torLine(); color: root.torColor() }
                 Item { Layout.fillWidth: true }
+                LogosLink {
+                    objectName: "manageTorLink"
+                    visible: root.proxySetting === "tor"
+                    text: "Manage Tor…"
+                    underline: false
+                    onActivated: root.manageTor()
+                }
             }
+            LogosText { objectName: "torNote"; visible: text !== ""; Layout.fillWidth: true; textFormat: Text.PlainText
+                        wrapMode: Text.Wrap; color: Theme.palette.error; text: root.torNote }
             LogosText {
                 objectName: "privacyLine"
                 Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText; color: Theme.palette.textSecondary

@@ -25,6 +25,7 @@ It talks only to `zcash_wallet_backend`.
   - A badge and a progress bar show Tor joining. If it is blocked or cannot start, a notice
     says why and what to do. While Tor joins, the server badges read "Connecting to Tor"
     rather than "Servers offline".
+  - **Manage Tor…** opens the Tor app (`tor.manage`): Tor's state, its log, Reconnect.
   - **Use my own Tor instead** takes a SOCKS address, such as a system Tor at
     `socks5h://127.0.0.1:9050` or Tor Browser at `socks5h://127.0.0.1:9150`.
   - The info button says what each choice reveals: through Tor, without Tor for a server, or
