@@ -512,12 +512,12 @@ Item {
     function localNodeDetail() {
         var l = root.localNode, s = l.status
         if (l.network === undefined) return ""
-        if (!s) return (l.error ? l.error + ". " : "") + "The Zcash Node app installs and runs it."
+        if (!s) return (l.error ? l.error + ". " : "") + "The Zcash Zebra Node app installs and runs it."
         var st = s.state || "unknown"
         if (l.available !== true) {
             if (st === "running") return "It is running " + (s.network || "another network") + "; this wallet is on " + root.activeNetwork + "."
             if (st === "failed") return "It failed" + (s.lastError ? ": " + s.lastError : ".")
-            return "It is " + st + ". Start it for " + root.activeNetwork + " in the Zcash Node app."
+            return "It is " + st + ". Start it for " + root.activeNetwork + " in the Zcash Zebra Node app."
         }
         return root.activeNetwork !== "regtest" && Number(s.estimatedHeight) - Number(s.height) > 10
                ? "Still syncing: the wallet sees the chain only as far as your node has it." : ""
@@ -579,7 +579,7 @@ Item {
         root.localNodeNote = ""
         logos.request("zcash.node.configure", ({ network: root.activeNetwork }), function (res) {
             if (res.ok || res.error === "cancelled") return
-            root.localNodeNote = res.error === "unavailable" ? "The Zcash Node app is not installed."
+            root.localNodeNote = res.error === "unavailable" ? "The Zcash Zebra Node app is not installed."
                                                               : "That request did not go through (" + res.error + ")."
         })
     }
