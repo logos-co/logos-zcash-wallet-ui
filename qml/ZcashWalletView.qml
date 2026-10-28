@@ -919,7 +919,8 @@ Item {
                 Item { Layout.fillWidth: true }
             }
             LogosText { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textTertiary
-                        text: (root.localNodeOn ? "Your node answers every read; these servers only receive the transactions you send. "
+                        text: (root.localNodeOn ? "Your node answers every read. These servers get the transactions you send, a health check each minute and, "
+                                                  + "every two minutes, a check that your node is on their chain; none of it says anything about your wallet. "
                                                 : "")
                               + "Turn on the servers you want, from more than one operator if you can: they check each other. "
                               + "A change applies the next time a wallet opens." }
@@ -1088,8 +1089,10 @@ Item {
                 LogosText {
                     Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
                     text: "Reads come from your own Zcash node over Logos IPC, so no server sees them. Transactions you send "
-                          + "still go to the servers above. With no server enabled, your node broadcasts them itself, "
-                          + "over its own peer connections and without Tor. A change applies the next time a wallet opens."
+                          + "still go to the servers above, and every two minutes one of them is asked for its latest block, to "
+                          + "check that your node is on the same chain. With no server enabled, your node broadcasts them itself, "
+                          + "over its own peer connections and without Tor, and that check stops. A change applies the next time a "
+                          + "wallet opens."
                 }
                 LogosText {
                     objectName: "localNodeState"
