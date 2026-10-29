@@ -55,6 +55,7 @@ public:
     QString setServerEnabled(QString id, bool enabled) override;
     QString setServerTor(QString id, bool tor) override;
     QString setLocalNode(bool enabled) override;
+    void watchServers(bool on) override;
     void refreshLocalNode() override;
 
 protected:

@@ -48,6 +48,8 @@ It talks only to `zcash_wallet_backend`.
   - An onion service always goes through Tor.
   - While a wallet is open these settings show but do not change; they apply when a wallet
     opens.
+  - Servers are checked once a minute: an open wallet's network's, and with no wallet open,
+    the network on show while this sheet is open. Nothing is checked otherwise.
 - **Use my local node** (Servers and privacy): reads come from `zebrad_module`'s node over
   Logos IPC; sends still go to the servers, and with no server enabled the node
   broadcasts them itself, without Tor. The pane shows the node's state, height and peers, or

@@ -108,5 +108,8 @@ class ZcashWalletUi
     SLOT(QString setServerTor(QString id, bool tor))
     // Reads from zebrad_module over Logos IPC; broadcasts stay on the servers.
     SLOT(QString setLocalNode(bool enabled))
+    // The servers sheet is open (renewed each minute) or closed. With no wallet open, the
+    // backend has servers checked only while it is.
+    SLOT(void watchServers(bool on))
     SLOT(void refreshLocalNode())
 }

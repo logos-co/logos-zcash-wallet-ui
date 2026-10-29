@@ -64,6 +64,14 @@ Item {
         running: root.ready && root.walletOpen && root.localNodeOn && root.activeNetwork !== "regtest"
         onTriggered: backend.refreshLocalNode()
     }
+    // With no wallet open, servers are checked only while the servers sheet is open. The
+    // backend holds that for 3 minutes, so it is renewed each minute.
+    Timer {
+        interval: 60000
+        repeat: true
+        running: root.ready && networkSheet.visible
+        onTriggered: backend.watchServers(true)
+    }
     Component.onCompleted: root.ready = root.backend !== null && logos.isViewModuleReady("zcash_wallet_ui")
 
     function j(t, fb) { try { return JSON.parse(t && t.length ? t : fb) } catch (e) { return JSON.parse(fb) } }
@@ -2517,6 +2525,8 @@ Item {
         title: "Servers and privacy"
         anchors.centerIn: parent
         width: Math.min(parent.width - 40, 720)
+        onOpened: if (root.ready) backend.watchServers(true)
+        onClosed: if (root.ready) backend.watchServers(false)
         contentItem: ScrollView {
             id: networkSheetScroll
             clip: true
