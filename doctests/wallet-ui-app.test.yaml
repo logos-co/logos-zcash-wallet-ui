@@ -118,6 +118,21 @@ sections:
           echo $! > miner.pid
           echo "miner $(cat miner.pid)"
         expect_contains: ["miner"]
+      - title: "Listen where a server would, and never answer"
+        platform: [linux, macos, windows]
+        # Stands in for a server at the end of a Tor circuit still being built: the node
+        # module's first check of it runs to its 50 s timeout. Ends with the chain too.
+        run: |
+          set -eu
+          cat > silent.js <<'JS'
+          const fs = require('fs');
+          require('net').createServer((s) => s.on('error', () => {})).listen(29099, '127.0.0.1');
+          setInterval(() => fs.existsSync('chain/zebrad.pid') || process.exit(0), 3000);
+          JS
+          nohup node silent.js < /dev/null > silent.log 2>&1 &
+          echo $! > silent.pid
+          echo "silent $(cat silent.pid)"
+        expect_contains: ["silent"]
       - title: "Give the modules the chain's upgrade heights"
         platform: [linux, macos, windows]
         # A module instance runs regtest when its persistence directory holds regtest.json, and
@@ -293,6 +308,56 @@ sections:
               value: "ok"
               timeout: 120000
               screenshot: "wallet-ui-servers.png"
+
+            - name: "Add a server that takes the connection and never answers"
+              action: set_text
+              find_by: "objectName"
+              find_value: "addServerAddress"
+              value: "127.0.0.1:29099"
+            - name: "Name it"
+              action: set_text
+              find_by: "objectName"
+              find_value: "addServerName"
+              value: "Silent server"
+            - name: "Add it"
+              action: click_object
+              find_value: "addServerButton"
+            - name: "Until its first check ends, it reads as being checked, not as unreachable"
+              action: expect_property
+              find_value: "serverHealth_127.0.0.1-3"
+              property: "text"
+              value: "checking…"
+              timeout: 15000
+              screenshot: "wallet-ui-server-checking.png"
+            - name: "...while the servers checked before keep their status"
+              action: expect_property
+              find_value: "serverHealth_127.0.0.1"
+              property: "healthState"
+              value: "reachable"
+            - name: "...and the verdict stays on them"
+              action: expect_property
+              find_value: "zcashWalletRoot"
+              property: "overall"
+              value: "ok"
+            - name: "It reads unreachable once that check times out"
+              # 50 s per check, after any check still running when it was added.
+              action: expect_property
+              find_value: "serverHealth_127.0.0.1-3"
+              property: "healthState"
+              value: "unreachable"
+              timeout: 150000
+            - name: "Remove it"
+              # Its row can sit below the sheet's viewport, where a synthesized click misses.
+              action: call_method
+              find_value: "removeServer_127.0.0.1-3"
+              method: "clicked"
+              args: []
+            - name: "The two regtest servers are left"
+              action: expect_property
+              find_value: "serverRows"
+              property: "count"
+              value: 2
+              timeout: 15000
             - name: "Close the sheet"
               action: call_method
               find_value: "zcashWalletRoot"
@@ -693,6 +758,7 @@ sections:
         run: |
           set -eu
           kill "$(cat miner.pid)" 2>/dev/null || true
+          kill "$(cat silent.pid)" 2>/dev/null || true
           . ./chain.env
           ./result-chain/bin/regtest-chain stop
           echo stopped
