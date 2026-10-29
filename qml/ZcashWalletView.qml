@@ -3,6 +3,7 @@ import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import Logos.Controls
 import Logos.Theme
+import "accountkit" as Accounts
 
 // The Zcash wallet. Nothing open: the Wallets screen. A wallet open: Home, Send, Receive,
 // Activity and Settings. Secrets cross only as SLOT arguments and return values.
@@ -54,6 +55,14 @@ Item {
             openNameField.text = w
             openWalletSheet.open()
         }
+    }
+    // Home and the header follow your node while the wallet reads from it.
+    Timer {
+        interval: root.localStatus ? 10000 : 30000
+        repeat: true
+        triggeredOnStart: true
+        running: root.ready && root.walletOpen && root.localNodeOn && root.activeNetwork !== "regtest"
+        onTriggered: backend.refreshLocalNode()
     }
     Component.onCompleted: root.ready = root.backend !== null && logos.isViewModuleReady("zcash_wallet_ui")
 
@@ -142,6 +151,15 @@ Item {
     onNetworkLockedChanged: { torOffAskedFor = ""; networkNote = ""; ownTorOpen = false }
     readonly property bool localNodeAvailable: localNode.available === true
     onLocalNodeAvailableChanged: if (localNodeAvailable) localNodeNote = ""
+    // While the wallet reads from your node: the blocks it is behind, by its own estimate or the
+    // last server check. 0 within 10 blocks, and on regtest, whose estimate runs far ahead.
+    readonly property int nodeBehind: {
+        if (!walletOpen || !localNodeOn || activeNetwork === "regtest") return 0
+        var gap = 0, s = localStatus, c = sync.crossCheck
+        if (localNodeAvailable && s && Number(s.estimatedHeight) > 0) gap = Number(s.estimatedHeight) - Number(s.height)
+        if (c && c.verdict === "node_behind" && sync.tip) gap = Math.max(gap, c.serverTip - sync.tip)
+        return gap > 10 ? gap : 0
+    }
     readonly property string activeNetwork: ready ? (networks.active || "") : ""
     readonly property string displayedNetwork: walletOpen ? (status.network || activeNetwork) : activeNetwork
     readonly property var walletsOnNetwork: wallets.filter(function (w) { return !w.network || w.network === root.activeNetwork })
@@ -371,7 +389,6 @@ Item {
     function shortAddress(a) { return a && a.length > 40 ? a.slice(0, 20) + "…" + a.slice(-8) : (a || "") }
     function shortId(s) { return s && s.length > 20 ? s.slice(0, 10) + "…" + s.slice(-8) : (s || "") }
     function whenOf(t) { return t ? new Date(t * 1000).toLocaleString(Qt.locale(), Locale.ShortFormat) : "" }
-    function wordCount(t) { var s = (t || "").trim(); return s === "" ? 0 : s.split(/\s+/).length }
     function normalisePhrase(t) { return (t || "").trim().split(/\s+/).join(" ").toLowerCase() }
     function poolLabel(p) {
         if (p === "ironwood") return "Ironwood"
@@ -446,10 +463,24 @@ Item {
         if (min < 60) return "about " + min + " min left"
         return "about " + Math.floor(min / 60) + " h " + (min % 60) + " min left"
     }
+    // Your node's progress as the Zcash Node app shows it, else the blocks it is behind.
+    function nodeFraction() {
+        var s = root.localStatus
+        return root.localNodeAvailable && s && Number(s.estimatedHeight) > 0
+               ? Math.max(0, Math.min(1, Number(s.height) / Number(s.estimatedHeight))) : 0
+    }
+    function nodeProgress() {
+        var f = root.nodeFraction()
+        return f > 0 ? (Math.floor(f * 1000) / 10).toFixed(1) + "%" : root.fmtHeight(root.nodeBehind) + " blocks behind"
+    }
+    function nodeLine() {
+        return "Your node is still syncing, " + root.fmtHeight(root.nodeBehind) + " blocks behind. Until it catches up, "
+               + "the wallet can't see newer blocks, so transactions in them don't show yet."
+    }
     function syncLine() {
         if (!root.syncRead) return "Sync: —"
         var s = root.sync.state || ""
-        if (s === "synced") return "Synced to block " + root.fmtHeight(root.sync.tip)
+        if (s === "synced") return (root.nodeBehind > 0 ? "Synced to your node, at block " : "Synced to block ") + root.fmtHeight(root.sync.tip)
         if (s === "scanning" || s === "downloading") {
             const eta = root.etaText(root.sync.etaSecs)
             return "Scanning · block " + root.fmtHeight(root.sync.fullyScanned) + " of " + root.fmtHeight(root.sync.tip)
@@ -463,7 +494,7 @@ Item {
         if (!root.walletOpen) return ""
         if (!root.syncRead) return "Sync —"
         var s = root.sync.state
-        if (s === "synced") return "Synced · " + root.fmtHeight(root.sync.tip)
+        if (s === "synced") return root.nodeBehind > 0 ? "Node syncing · " + root.nodeProgress() : "Synced · " + root.fmtHeight(root.sync.tip)
         if (s === "scanning" || s === "downloading") return "Syncing " + Math.floor(root.syncFraction() * 100) + "%"
         return "Connecting…"
     }
@@ -535,12 +566,12 @@ Item {
     function localNodeDetail() {
         var l = root.localNode, s = l.status
         if (l.network === undefined) return ""
-        if (!s) return (l.error ? l.error + ". " : "") + "The Zcash Node app installs and runs it."
+        if (!s) return (l.error ? l.error + ". " : "") + "The Zcash Zebra Node app installs and runs it."
         var st = s.state || "unknown"
         if (l.available !== true) {
             if (st === "running") return "It is running " + (s.network || "another network") + "; this wallet is on " + root.activeNetwork + "."
             if (st === "failed") return "It failed" + (s.lastError ? ": " + s.lastError : ".")
-            return "It is " + st + ". Start it for " + root.activeNetwork + " in the Zcash Node app."
+            return "It is " + st + ". Start it for " + root.activeNetwork + " in the Zcash Zebra Node app."
         }
         return root.activeNetwork !== "regtest" && Number(s.estimatedHeight) - Number(s.height) > 10
                ? "Still syncing: the wallet sees the chain only as far as your node has it." : ""
@@ -611,7 +642,7 @@ Item {
         root.localNodeNote = ""
         logos.request("zcash.node.configure", ({ network: root.activeNetwork }), function (res) {
             if (res.ok || res.error === "cancelled") return
-            root.localNodeNote = res.error === "unavailable" ? "The Zcash Node app is not installed."
+            root.localNodeNote = res.error === "unavailable" ? "The Zcash Zebra Node app is not installed."
                                                               : "That request did not go through (" + res.error + ")."
         })
     }
@@ -1158,7 +1189,8 @@ Item {
             LogosText { text: "Zcash"; font.pixelSize: 22 }
             Item { Layout.fillWidth: true }
             LogosText { objectName: "syncChip"; textFormat: Text.PlainText; font.pixelSize: 12
-                        color: Theme.palette.textSecondary; text: root.syncChip() }
+                        color: root.nodeBehind > 0 && root.sync.state === "synced" ? Theme.palette.warning : Theme.palette.textSecondary
+                        text: root.syncChip() }
             // Orange marks the network where the money is not real.
             LogosBadge {
                 objectName: "networkChip"
@@ -1542,9 +1574,21 @@ Item {
                         LogosProgressBar {
                             objectName: "syncProgress"
                             Layout.fillWidth: true
-                            visible: root.syncRead && root.sync.state !== "synced"
-                            indeterminate: !root.sync.tip
-                            value: root.syncFraction()
+                            // Synced as far as a node that is still syncing: the node's progress.
+                            readonly property bool forNode: root.sync.state === "synced" && root.nodeBehind > 0
+                            visible: root.syncRead && (root.sync.state !== "synced" || forNode)
+                            indeterminate: forNode ? root.nodeFraction() === 0 : !root.sync.tip
+                            value: forNode ? root.nodeFraction() : root.syncFraction()
+                        }
+                        LogosText {
+                            objectName: "nodeSyncingNote"
+                            visible: root.nodeBehind > 0
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                            color: Theme.palette.warning
+                            font.pixelSize: 12
+                            text: root.nodeLine()
                         }
                         LogosText {
                             visible: root.syncRead && !!root.sync.lastError
@@ -1900,11 +1944,26 @@ Item {
                                       ? "Your recovery phrase. Anyone who has it can spend this wallet's funds. Write it down and keep it offline."
                                       : "Your viewing key. Whoever holds it sees every past and future transaction of this wallet, and sharing it cannot be undone."
                             }
+                            // The phrase in the numbered fields it is typed back into; the key as text.
+                            Accounts.PhraseGrid {
+                                id: secretWords
+                                objectName: "secretWords"
+                                visible: root.secretKind === "phrase"
+                                Layout.fillWidth: true
+                                counts: [24]
+                                readOnly: true
+                            }
                             LogosSelectableText {
                                 objectName: "secretText"
+                                visible: root.secretKind !== "phrase"
                                 Layout.fillWidth: true
                                 wrapMode: TextEdit.WrapAtWordBoundaryOrAnywhere
                                 text: root.shownSecret
+                            }
+                            // Set, not bound: the grid writes its own text back as it fills.
+                            Connections {
+                                target: root
+                                function onShownSecretChanged() { secretWords.text = root.secretKind === "phrase" ? root.shownSecret : "" }
                             }
                             RowLayout {
                                 LogosCopyButton { value: root.shownSecret }
@@ -2426,11 +2485,8 @@ Item {
             LogosTextField { id: rName; objectName: "restoreNameField"; Layout.fillWidth: true
                              placeholderText: "Wallet name: letters, digits, - and _"
                              validator: RegularExpressionValidator { regularExpression: /^[A-Za-z0-9_-]{0,64}$/ } }
-            LogosTextArea { id: rPhrase; objectName: "restorePhraseField"; placeholderText: "24-word recovery phrase"
-                            Layout.fillWidth: true; Layout.preferredHeight: 90 }
-            LogosText { visible: rPhrase.text.trim() !== "" && root.wordCount(rPhrase.text) !== 24
-                        color: Theme.palette.textSecondary
-                        text: "A recovery phrase has 24 words; this has " + root.wordCount(rPhrase.text) + "." }
+            // One word to a numbered field, shown as typed, so it can be checked against the paper.
+            Accounts.PhraseGrid { id: rPhrase; objectName: "restorePhraseField"; counts: [24]; Layout.fillWidth: true }
             LogosTextField { id: rWhen; objectName: "restoreBirthdayField"; Layout.fillWidth: true
                              placeholderText: root.activeNetwork === "testnet" ? "Block height first used at (optional)"
                                                                                : "Month first used, such as 2024-05, or a block height (optional)" }
@@ -2444,7 +2500,7 @@ Item {
             LogosButton {
                 objectName: "restoreButton"; text: "Restore"
                 variant: LogosButton.Variant.Primary
-                enabled: root.ready && !root.busy && rName.text !== "" && root.wordCount(rPhrase.text) === 24
+                enabled: root.ready && !root.busy && rName.text !== "" && rPhrase.complete
                          && root.birthdayFor(rWhen.text) > 0 && rPw.text !== "" && rPw.text === rPw2.text
                 onClicked: {
                     backend.restoreWallet(rName.text, rPw.text, root.normalisePhrase(rPhrase.text), root.birthdayFor(rWhen.text))

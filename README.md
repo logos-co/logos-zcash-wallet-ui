@@ -20,6 +20,12 @@ It talks only to `zcash_wallet_backend`.
   transaction was for: an amount sent, sent to yourself, or shielded, with its fee, rather than
   only the balance change.
 - **Settings:** wallets, password, recovery phrase, viewing key, servers and proxy.
+- **Restore** takes the 24-word phrase one word to a numbered field, shown as typed so it can be
+  checked against the paper; a phrase pasted into any field spreads over the rest. **Show
+  recovery phrase** in Settings shows it in the same numbered fields, to be written down as it
+  will be typed back. Both are the account kit's `PhraseGrid`, vendored in `qml/accountkit/` by
+  `logos-account-kit/scripts/vendor.sh` at the commit in its `VERSION`; CI checks the copy
+  against that commit.
 - **Servers and privacy:** servers are reached through the Tor that comes with Logos
   (`tor_module`), with nothing to install or run.
   - A badge and a progress bar show Tor joining. If it is blocked or cannot start, a notice
@@ -45,7 +51,7 @@ It talks only to `zcash_wallet_backend`.
 - **Use my local node** (Servers and privacy): reads come from `zebrad_module`'s node over
   Logos IPC; sends still go to the servers, and with no server enabled the node
   broadcasts them itself, without Tor. The pane shows the node's state, height and peers, or
-  that it is not installed or not running for this network, and opens the Zcash Node app
+  that it is not installed or not running for this network, and opens the Zcash Zebra Node app
   (`zcash.node.configure`). It applies the next time a wallet opens. The servers take turns
   checking the node; the pane shows the last check, and a warning if they hold different blocks.
 
