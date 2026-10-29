@@ -587,10 +587,12 @@ sections:
               method: "selectTab"
               args: [3]
             - name: "Activity says what that send was for, not only its fee"
+              # By its text: a block mined to the wallet meanwhile can be the newest row.
               action: expect_property
-              find_value: "historyIntent"
-              property: "text"
-              value: "0.000001 ZEC to yourself · fee 0.00015 ZEC"
+              find_by: "text"
+              find_value: "0.000001 ZEC to yourself · fee 0.00015 ZEC"
+              property: "objectName"
+              value: "historyIntent"
               timeout: 60000
               screenshot: "wallet-ui-activity-self.png"
 

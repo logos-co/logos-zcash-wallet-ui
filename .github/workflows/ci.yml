@@ -154,6 +154,18 @@ jobs:
               echo "::error::unexpected ReferenceError above"; exit 1
             fi'
 
+  accountkit:
+    name: qml/accountkit is logos-account-kit as pinned
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: scripts/check.sh at the pinned commit
+        run: |
+          set -euo pipefail
+          git clone -q https://github.com/logos-co/logos-account-kit "$RUNNER_TEMP/accountkit"
+          git -C "$RUNNER_TEMP/accountkit" checkout -q "$(cat qml/accountkit/VERSION)"
+          "$RUNNER_TEMP/accountkit/scripts/check.sh" .
+
   windows:
     # The cross build on Linux, the PE and import-closure gates and the hand-off live in
     # logos-co/logos-windows-ci. No smoke: a module plugin has no entry point of its own.
