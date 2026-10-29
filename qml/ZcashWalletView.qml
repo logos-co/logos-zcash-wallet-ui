@@ -113,6 +113,8 @@ Item {
     readonly property var serverList: Array.isArray(serversInfo.servers) ? serversInfo.servers : []
     readonly property var health: ready ? j(backend.serverHealthJson, "{}") : ({})
     readonly property string overall: health.overall || ""
+    // Some enabled server has not had its first check yet.
+    readonly property bool healthPending: health.pending === true
     readonly property bool serversRead: ready && backend.serversJson !== ""
     readonly property bool localNodeOn: serversInfo.localNode === true
     // local_node() for the active network; {} until read, or when it answered for another one.
@@ -518,6 +520,8 @@ Item {
     function overallLabel(o) {
         // Every server reads offline while the built-in Tor joins: say what is happening instead.
         if (o === "offline" && root.torWaiting) return root.torLine()
+        // None has answered yet, and one is still on its first check.
+        if (o === "offline" && root.healthPending) return "Checking servers…"
         if (o === "ok") return "Servers OK"
         if (o === "degraded") return "Servers degraded"
         if (o === "disagreement") return "Servers disagree"
@@ -527,6 +531,7 @@ Item {
     }
     function overallColor(o) {
         if (o === "offline" && root.torWaiting) return root.torColor()
+        if (o === "offline" && root.healthPending) return Theme.palette.textSecondary
         if (o === "ok") return Theme.palette.success
         if (o === "degraded") return Theme.palette.warning
         return Theme.palette.error
@@ -551,10 +556,16 @@ Item {
         }
         return s && s[id] ? s[id] : null
     }
-    function healthLine(id) {
+    // The node lists a server it has not checked yet with no checkedAt, and reachable false.
+    function healthState(id) {
         var h = root.healthOf(id)
-        if (!h) return "not checked yet"
-        if (h.reachable !== true) return "unreachable" + (h.lastError ? ": " + h.lastError : "")
+        if (!h || h.checkedAt === undefined || h.checkedAt === null) return "checking"
+        return h.reachable === true ? "reachable" : "unreachable"
+    }
+    function healthLine(id) {
+        var h = root.healthOf(id), state = root.healthState(id)
+        if (state === "checking") return "checking…"
+        if (state === "unreachable") return "unreachable" + (h.lastError ? ": " + h.lastError : "")
         return (h.rttMs !== undefined && h.rttMs !== null ? h.rttMs + " ms" : "reachable")
                + (h.height ? " · block " + root.fmtHeight(h.height) : "")
                + (h.lastError ? " · " + h.lastError : "")
@@ -995,6 +1006,7 @@ Item {
             LogosText { visible: root.serverList.length === 0; color: Theme.palette.textSecondary
                         text: "No server list yet." }
             Repeater {
+                objectName: "serverRows"
                 model: root.serverList
                 LogosFrame {
                     id: serverRow
@@ -1017,7 +1029,9 @@ Item {
                                          text: "Without Tor"; color: Theme.palette.warning }
                             // Takes the free space but asks for none, so a long error elides (keeping its cause)
                             // instead of widening the row and pushing its controls out.
-                            LogosText { Layout.fillWidth: true; Layout.preferredWidth: 1; horizontalAlignment: Text.AlignRight; elide: Text.ElideMiddle
+                            LogosText { objectName: "serverHealth_" + modelData.id
+                                        readonly property string healthState: modelData.enabled ? root.healthState(modelData.id) : ""
+                                        Layout.fillWidth: true; Layout.preferredWidth: 1; horizontalAlignment: Text.AlignRight; elide: Text.ElideMiddle
                                         textFormat: Text.PlainText; font.pixelSize: 12; color: Theme.palette.textSecondary
                                         text: modelData.enabled ? root.healthLine(modelData.id) : "" }
                         }
