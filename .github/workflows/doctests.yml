@@ -95,6 +95,7 @@ jobs:
         {"result-wallet": {"ref": ".#packages.x86_64-windows.install-portable"},
          "result-basecamp": {"ref": "github:logos-co/logos-basecamp#packages.x86_64-windows.app-standalone-portable"},
          "result-mcp": {"ref": "github:logos-co/logos-qt-mcp#packages.x86_64-linux.default"},
+         "result-tor": {"ref": "github:logos-co/logos-tor-module#packages.x86_64-windows.install-portable"},
          "result-node": {"ref": "github:logos-co/logos-zcash-node-module#packages.x86_64-windows.install-portable"},
          "result-core": {"ref": "github:logos-co/logos-zcash-wallet-core-module#packages.x86_64-windows.install-portable"},
          "result-backend": {"ref": "github:logos-co/logos-zcash-wallet-backend#packages.x86_64-windows.install-portable"},
@@ -103,11 +104,12 @@ jobs:
          "result-chain": {"ref": "github:logos-co/logos-zcash-wallet-core-module#packages.x86_64-windows.regtest-chain"}}
       # The modules import Qt and GCC's runtime from Basecamp's bin/, as they do at runtime.
       assemble: >-
-        {"result-wallet": ["result-basecamp/bin"], "result-node": ["result-basecamp/bin"],
+        {"result-wallet": ["result-basecamp/bin"], "result-tor": ["result-basecamp/bin"], "result-node": ["result-basecamp/bin"],
          "result-core": ["result-basecamp/bin"], "result-backend": ["result-basecamp/bin"]}
       doctest-spec: doctests/wallet-ui-app.test.yaml
       doctest-artifact: doctest-report
       # Measured 646 derivations on a cold cache (2026-10-09), none of them Qt: the node, wallet
-      # core and Zebra crate graphs for Windows.
-      cold-derivation-budget: 700
+      # core and Zebra crate graphs for Windows. tor_module's Arti graph planned 374 more on its
+      # own (2026-10-27); they share some crates.
+      cold-derivation-budget: 1100
       timeout-minutes: 120

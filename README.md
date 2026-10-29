@@ -26,8 +26,18 @@ It talks only to `zcash_wallet_backend`.
   will be typed back. Both are the account kit's `PhraseGrid`, vendored in `qml/accountkit/` by
   `logos-account-kit/scripts/vendor.sh` at the commit in its `VERSION`; CI checks the copy
   against that commit.
-- **Servers and privacy:** every server has a **Use** switch, and you can add servers of your
-  own by address, such as `192.168.1.20` or `zebra.lan:9067`, and remove them.
+- **Servers and privacy:** servers are reached through the Tor that comes with Logos
+  (`tor_module`), with nothing to install or run.
+  - A badge and a progress bar show Tor joining. If it is blocked or cannot start, a notice
+    says why and what to do. While Tor joins, the server badges read "Connecting to Tor"
+    rather than "Servers offline".
+  - **Manage Tor…** opens the Tor app (`tor.manage`): Tor's state, its log, Reconnect.
+  - **Use my own Tor instead** takes a SOCKS address, such as a system Tor at
+    `socks5h://127.0.0.1:9050` or Tor Browser at `socks5h://127.0.0.1:9150`.
+  - The info button says what each choice reveals: through Tor, without Tor for a server, or
+    a server on your own network.
+  - Every server has a **Use** switch, and you can add servers of your own by address, such
+    as `192.168.1.20` or `zebra.lan:9067`, and remove them.
   - Servers from more than one operator check each other, as the info button explains. Blocks
     come from each operator in turn and must fit together. A transaction one server accepts
     must reach another operator. If one operator goes down, another keeps the wallet working.
@@ -38,6 +48,8 @@ It talks only to `zcash_wallet_backend`.
   - An onion service always goes through Tor.
   - While a wallet is open these settings show but do not change; they apply when a wallet
     opens.
+  - Servers are checked once a minute: an open wallet's network's, and with no wallet open,
+    the network on show while this sheet is open. Nothing is checked otherwise.
 - **Use my local node** (Servers and privacy): reads come from `zebrad_module`'s node over
   Logos IPC; sends still go to the servers, and with no server enabled the node
   broadcasts them itself, without Tor. The pane shows the node's state, height and peers, or

@@ -857,6 +857,11 @@ QString ZcashWalletUiBackend::setServerTor(QString id, bool tor) {
     });
 }
 
+// The backend only notes it, so the answer is not awaited.
+void ZcashWalletUiBackend::watchServers(bool on) {
+    modules().zcash_wallet_backend.watch_serversAsync(on, [](QString) {});
+}
+
 // ---- the local node ------------------------------------------------------------------------
 
 QString ZcashWalletUiBackend::setLocalNode(bool enabled) {
