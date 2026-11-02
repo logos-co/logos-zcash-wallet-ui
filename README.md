@@ -19,21 +19,36 @@ It talks only to `zcash_wallet_backend`.
 - **History**, with a run's migration transactions under one heading. Each row says what the
   transaction was for: an amount sent, sent to yourself, or shielded, with its fee, rather than
   only the balance change.
-- **Settings:** wallets, password, recovery phrase, viewing key, servers and proxy.
+- **Settings:** wallets, password, recovery phrase, viewing key, Use Tor for, servers and proxy.
 - **Restore** takes the 24-word phrase one word to a numbered field, shown as typed so it can be
   checked against the paper; a phrase pasted into any field spreads over the rest. **Show
   recovery phrase** in Settings shows it in the same numbered fields, to be written down as it
   will be typed back. Both are the account kit's `PhraseGrid`, vendored in `qml/accountkit/` by
   `logos-account-kit/scripts/vendor.sh` at the commit in its `VERSION`; CI checks the copy
   against that commit.
-- **Servers and privacy:** servers are reached through the Tor that comes with Logos
+- **Use Tor for**, asked once, before the first wallet is created, restored or opened: the
+  screen takes the place of the Wallets screen while the node module's `torUseChosen` is false.
+  - Three options, each with what happens, its pros and its cons: **Only what identifies you**
+    (tagged Recommended), **Everything** and **Nothing**.
+  - A fresh install has the first selected. An existing one has its routing so far, tagged
+    Current, so Continue keeps it.
+  - Continue stores the choice for every network (`set_tor_use`), and the screen does not come
+    back. An unlock another app asks for waits for it.
+  - It never shows over an open wallet, nor with a backend too old to have the setting.
+- **Servers and privacy:** **Use Tor for** has the same three options, with their text behind
+  **What this means**. While a wallet is open it shows but is disabled: "Close the wallet to
+  change this." Servers that use Tor reach it through the Tor that comes with Logos
   (`tor_module`), with nothing to install or run.
   - A badge and a progress bar show Tor joining. If it is blocked or cannot start, a notice
     says why and what to do. While Tor joins, the server badges read "Connecting to Tor"
     rather than "Servers offline".
   - **Manage Tor…** opens the Tor app (`tor.manage`): Tor's state, its log, Reconnect.
-  - **Use my own Tor instead** takes a SOCKS address, such as a system Tor at
-    `socks5h://127.0.0.1:9050` or Tor Browser at `socks5h://127.0.0.1:9150`.
+  - **Use my own Tor instead** takes a `socks5h://` address, such as a system Tor at
+    `socks5h://127.0.0.1:9050` or Tor Browser at `socks5h://127.0.0.1:9150`. This choice of
+    Tor, and Manage Tor…, show for Everything and Only what identifies you; Nothing uses no Tor.
+  - With Only what identifies you, blocks come straight from the servers, and looking up
+    transactions and transparent addresses, and sending, go through Tor. With one operator in
+    use, its notice says that operator sees both sides and could match them by timing.
   - The info button says what each choice reveals: through Tor, without Tor for a server, or
     a server on your own network.
   - Every server has a **Use** switch, and you can add servers of your own by address, such
@@ -43,9 +58,10 @@ It talks only to `zcash_wallet_backend`.
     must reach another operator. If one operator goes down, another keeps the wallet working.
     A notice asks for a second operator when only one is in use.
   - Servers on your own network are reached directly, since Tor cannot reach them.
-  - Every other https server has its own **Tor** switch, on by default. Turning it off first
-    says what that server would see, and a notice names every server reached without Tor.
-  - An onion service always goes through Tor.
+  - With Everything, every other https server has its own **Tor** switch, on by default.
+    Turning it off first says what that server would see, and a notice names every server
+    reached without Tor.
+  - An onion service always goes through Tor, so Nothing leaves it off.
   - While a wallet is open these settings show but do not change; they apply when a wallet
     opens.
   - Servers are checked once a minute: an open wallet's network's, and with no wallet open,
