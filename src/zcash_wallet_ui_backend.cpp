@@ -5,6 +5,9 @@
 #include <QRegularExpression>
 #include <QUrl>
 
+#include <nlohmann/json.hpp>
+
+#include "logos_qt_lp_bridge.h"
 #include "logos_sdk.h"
 #include "qrcodegen.hpp"
 
@@ -195,6 +198,8 @@ void ZcashWalletUiBackend::onContextReady() {
         loadSync();
         loadBalances();
         if (!m_healthReadAge.isValid() || m_healthReadAge.elapsed() >= kHealthPollMs) loadServerHealth();
+        // A first read lost to a backend not up yet would skip the first-run choice.
+        if (torUseJson().isEmpty() && !m_torUseUnknown) loadTorUse();
         if (migrationLive() && (!m_migrationReadAge.isValid() || m_migrationReadAge.elapsed() >= kMigrationPollMs))
             loadMigration();
         syncHistoryToHeight();
@@ -248,6 +253,8 @@ void ZcashWalletUiBackend::onContextReady() {
 void ZcashWalletUiBackend::refresh() {
     loadStatus();
     loadRegistry();
+    // Before the servers: a driver that waits for them then finds the choice already read.
+    loadTorUse();
     loadServers();
     loadServerHealth();
     loadSync();
@@ -335,6 +342,24 @@ void ZcashWalletUiBackend::loadReceive() {
 void ZcashWalletUiBackend::loadServers() {
     const QString r = modules().zcash_wallet_backend.servers();
     setServersJson(ok(r, "servers") ? stripOk(r) : QString());
+}
+
+// tor_use and set_tor_use go by name: the backend pinned in flake.lock predates them. Through
+// the bridge the generated client uses; *unknown is set by an older backend's unknown_method.
+QString ZcashWalletUiBackend::callByName(const char *method, const QVariantList &args, bool *unknown) {
+    nlohmann::json a = nlohmann::json::array();
+    for (const QVariant &v : args) a.push_back(logos::qt::toWire(v));
+    logos::CallError err;
+    const nlohmann::json r = logos::qt::invoke(
+        logos::qt::LpBridge::forTarget(modules().api, QStringLiteral("zcash_wallet_backend")), method, a, &err, Timeout().ms);
+    if (unknown) *unknown = err.ok() && r.is_object() && r.value("code", std::string()) == "unknown_method";
+    return err.ok() && r.is_string() ? QString::fromStdString(r.get<std::string>()) : QString();
+}
+
+// Quiet: "" on any failure, and the view then asks nothing.
+void ZcashWalletUiBackend::loadTorUse() {
+    const QString r = callByName("tor_use", {}, &m_torUseUnknown);
+    setTorUseJson(parse(r).value("ok").toBool() ? stripOk(r) : QString());
 }
 
 // On the read poll, so quiet: the health reply describes its own failures.
@@ -772,7 +797,15 @@ QString ZcashWalletUiBackend::settingsChange(const QString &reply) {
     return o.value("ok").toBool() ? QString() : o.value("error").toString(QStringLiteral("the wallet backend did not answer"));
 }
 
-// "direct" is no proxy: only the user's own network and servers set to skip Tor are reached.
+// Also answers the first-run choice. The node refuses it while any wallet is open.
+QString ZcashWalletUiBackend::setTorUse(QString mode) {
+    if (walletOpen()) return kLocked;
+    const QString r = callByName("set_tor_use", {mode});
+    loadTorUse();
+    return settingsChange(r);
+}
+
+// "direct" is no proxy, for regtest: elsewhere going without Tor is torUse none.
 QString ZcashWalletUiBackend::setProxy(QString proxy) {
     if (walletOpen()) return kLocked;
     proxy = proxy.trimmed();

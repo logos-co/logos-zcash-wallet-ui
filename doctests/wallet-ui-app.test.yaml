@@ -167,6 +167,20 @@ sections:
               property: "proxySetting"
               value: "tor"
               timeout: 30000
+            - name: "Answer the first-run Tor choice, if this backend asks it, with Everything"
+              # A backend with tor_use asks once, before any wallet; Everything keeps the per-server
+              # Tor switches tested below. An older backend asks nothing, and the call does nothing.
+              # The app reads tor_use before the servers, so the wait above covers it.
+              action: call_method
+              find_value: "zcashWalletRoot"
+              method: "chooseTorUse"
+              args: ["all"]
+            - name: "Nothing is asked any more: the Wallets screen shows"
+              action: expect_property
+              find_value: "walletsPage"
+              property: "visible"
+              value: true
+              timeout: 30000
             - name: "Select regtest, which the modules offer once regtest.json is there"
               action: call_method
               find_value: "zcashWalletRoot"

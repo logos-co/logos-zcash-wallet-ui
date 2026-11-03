@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <QVariantList>
 
 #include "rep_zcash_wallet_ui_source.h"
 #include "logos_ui_plugin_context.h"
@@ -49,6 +50,7 @@ public:
     QString addressValid(QString text) override;
     void refreshHistory() override;
     void showHistoryPage(int page) override;
+    QString setTorUse(QString mode) override;
     QString setProxy(QString proxy) override;
     QString addServer(QString address, QString name) override;
     QString removeServer(QString id) override;
@@ -67,6 +69,8 @@ private:
     bool walletOpen() const;
     QString editServers(const std::function<QString(QJsonArray &)> &edit);
     QString settingsChange(const QString &reply);
+    QString callByName(const char *method, const QVariantList &args, bool *unknown = nullptr);
+    void loadTorUse();
     void loadStatus();
     void loadRegistry();
     void loadSync();
@@ -115,4 +119,6 @@ private:
     // local_node() is read asynchronously, one read at a time.
     bool m_localNodeReading = false;
     QElapsedTimer m_localNodeReadAge;
+    // The backend answered tor_use with unknown_method: it predates the setting.
+    bool m_torUseUnknown = false;
 };

@@ -1,8 +1,9 @@
 name: CI
 
 # What this repo can assert without a host or a wallet: the build, the secret-PROP rule, and the
-# view linted and constructed for real. `nix build` proves nothing about QML: a bad import or a
-# mistyped Theme token takes the view down at runtime and says so only through qWarning.
+# view linted, constructed for real and driven through its first-run Tor choice (ci/states.qml).
+# `nix build` proves nothing about QML: a bad import or a mistyped Theme token takes the view down
+# at runtime and says so only through qWarning.
 #
 # The design system is not a flake input (the host links it), but its source decides whether
 # `import Logos.Controls` resolves, so it is checked out at the revision the builder pins.
@@ -152,6 +153,22 @@ jobs:
             fi
             if grep "ReferenceError" /tmp/qml.log | grep -v "logos is not defined"; then
               echo "::error::unexpected ReferenceError above"; exit 1
+            fi'
+
+      - name: Gate C — drive the first-run Tor choice and the Settings lock against a fake backend
+        working-directory: logos-zcash-wallet-ui
+        run: |
+          # shellcheck disable=SC2016  # the $(...) below is for the inner bash -c
+          nix shell "$QT#qt6.qtdeclarative" "$QT#qt6.qtsvg" -c bash -c '
+            d=$(dirname $(dirname $(readlink -f $(command -v qml))))
+            QT_LOGGING_TO_CONSOLE=1 QT_QUICK_CONTROLS_STYLE=Basic QT_QPA_PLATFORM=offscreen \
+              timeout 120 qml -I "$d/lib/qt-6/qml" -I ../logos-design-system/src/qml \
+              ci/states.qml > /tmp/states.log 2>&1
+            status=$?
+            cat /tmp/states.log
+            grep -q "STATES-OK" /tmp/states.log || { echo "::error::state test failed (exit $status)"; exit 1; }
+            if grep -qE "Cannot assign|Unable to assign|TypeError|ReferenceError" /tmp/states.log; then
+              echo "::error::QML errors while driving the states"; exit 1
             fi'
 
   accountkit:
