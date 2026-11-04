@@ -57,6 +57,10 @@ public:
     QString setServerEnabled(QString id, bool enabled) override;
     QString setServerTor(QString id, bool tor) override;
     QString setLocalNode(bool enabled) override;
+    QString setChainSource(QString source) override;
+    QString setOwnServer(QString address, bool tor) override;
+    QString setLocalSends(QString via) override;
+    QString applyPreset(QString name) override;
     void watchServers(bool on) override;
     void refreshLocalNode() override;
 
@@ -70,6 +74,7 @@ private:
     QString editServers(const std::function<QString(QJsonArray &)> &edit);
     QString settingsChange(const QString &reply);
     QString callByName(const char *method, const QVariantList &args, bool *unknown = nullptr);
+    QString settingsByName(const char *method, const QVariantList &args);
     void loadTorUse();
     void loadStatus();
     void loadRegistry();

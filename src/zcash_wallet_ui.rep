@@ -113,6 +113,14 @@ class ZcashWalletUi
     SLOT(QString setServerTor(QString id, bool tor))
     // Reads from zebrad_module over Logos IPC; broadcasts stay on the servers.
     SLOT(QString setLocalNode(bool enabled))
+    // Where the chain comes from: public, local (Zebra in Logos) or own (the address saved below).
+    SLOT(QString setChainSource(QString source))
+    // A lightwalletd the user runs, made the source; tor applies to an internet host only. "" forgets it.
+    SLOT(QString setOwnServer(QString address, bool tor))
+    // With the node in Logos: payments go through the servers (always over Tor) or the node.
+    SLOT(QString setLocalSends(QString via))
+    // two-operators (the servers picked for you) or custom (the list as it is, edited by hand).
+    SLOT(QString applyPreset(QString name))
     // The servers sheet is open (renewed each minute) or closed. With no wallet open, the
     // backend has servers checked only while it is.
     SLOT(void watchServers(bool on))

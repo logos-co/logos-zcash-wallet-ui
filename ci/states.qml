@@ -1,7 +1,7 @@
 import QtQuick
 
-// Drives the view through the first-run "Use Tor for" choice and the Settings choice against a fake
-// backend. Prints STATES-OK, or STATES-FAIL with the cases that disagree.
+// Drives the view through the first-run choice, where the chain comes from and Use Tor for, against
+// a fake backend. Prints STATES-OK, or STATES-FAIL with the cases that disagree.
 Item {
     id: scene
     width: 1280; height: 900
@@ -11,9 +11,11 @@ Item {
         signal viewModuleReadyChanged(string moduleName, bool isReady)
         signal intentRequested(string requestId, string intent, var params, string requesterName)
         property var responses: []
+        property var requests: []
+        property var lastCallback: null
         function module(name) { return fake }
         function isViewModuleReady(name) { return true }
-        function request(intent, params, cb) {}
+        function request(intent, params, cb) { requests = requests.concat([{ intent: intent, params: params }]); lastCallback = cb }
         function respond(id, ok, result, error) { responses = responses.concat([[id, ok, error]]) }
         function watch(reply, ok, err) { ok(reply) }
     }
@@ -87,7 +89,25 @@ Item {
         function removeServer(id) { return "" }
         function setServerEnabled(id, enabled) { return "" }
         function setServerTor(id, tor) { note("setServerTor", [id, tor]); return "" }
-        function setLocalNode(enabled) { return "" }
+        // The node module's answers, kept in serversJson as it reports them.
+        function patchServers(change) {
+            var s = JSON.parse(serversJson || "{}")
+            for (var k in change) s[k] = change[k]
+            serversJson = JSON.stringify(s)
+        }
+        function setLocalNode(enabled) {
+            note("setLocalNode", [enabled]); patchServers({ localNode: enabled, chainSource: enabled ? "local" : "public" }); return ""
+        }
+        function setChainSource(source) {
+            note("setChainSource", [source]); patchServers({ chainSource: source, localNode: source === "local" }); return ""
+        }
+        function setOwnServer(address, tor) {
+            note("setOwnServer", [address, tor])
+            patchServers({ chainSource: "own", localNode: false, own: { id: "own", url: "https://" + address, direct: !tor } })
+            return ""
+        }
+        function setLocalSends(via) { note("setLocalSends", [via]); patchServers({ localSends: via }); return "" }
+        function applyPreset(name) { note("applyPreset", [name]); patchServers({ preset: name }); return "" }
         function watchServers(on) {}
         function refreshLocalNode() {}
     }
@@ -95,8 +115,9 @@ Item {
     function torUse(mode, chosen, migrated) {
         return JSON.stringify({ torUse: mode, torUseChosen: chosen, torUseMigrated: migrated })
     }
-    // One operator's server in use, and an onion service on standby.
-    readonly property string servers: JSON.stringify({ proxy: "tor", localNode: false, servers: [
+    // One operator's server in use, and an onion service on standby, on a list the user keeps.
+    readonly property string servers: JSON.stringify({ proxy: "tor", localNode: false, chainSource: "public", localSends: "servers",
+                                                       preset: "custom", servers: [
         { id: "zec.rocks", url: "https://zec.rocks:443", operator: "zec.rocks", label: "zec.rocks", enabled: true, source: "preset" },
         { id: "onion", url: "http://" + "a".repeat(56) + ".onion:9067", operator: "Onion", label: "Onion", enabled: false, source: "preset" }
     ] })
@@ -131,6 +152,11 @@ Item {
     function tags(prefix, tag) {
         return ["identifying", "all", "none"].map(function (k) { return shown(prefix + tag + "_" + k) })
     }
+    // The visible copy of `name`, or null.
+    function vis(name) { return findAll(view.item, name, 0, []).filter(function (o) { return o.visible })[0] || null }
+    function visCount(name) { return findAll(view.item, name, 0, []).filter(function (o) { return o.visible }).length }
+    function setText(name, text) { var o = vis(name); if (o) o.text = text; else bad.push("no " + name + " to type into") }
+    function yOf(name) { var o = vis(name); return o ? Math.round(o.mapToItem(null, 0, 0).y) : -1 }
 
     property var steps: [
         function (v) {
@@ -151,6 +177,10 @@ Item {
             fake.torUseJson = scene.torUse("identifying", false, false)
         },
         function (v) {
+            expect("first run asks where the chain comes from: public preselected",
+                   [prop("firstRunPublic", "checked"), prop("firstRunOwn", "checked")], [true, false])
+            expect("...with Use Tor for under it", shown("firstRunTorUse"), true)
+            expect("...and your own node marked most private", shown("firstRunOwnBadge"), true)
             expect("fresh install: identifying preselected", checks("torUseFirst"), [true, false, false])
             expect("...nothing tagged Current", tags("torUseFirst", "Current"), [false, false, false])
             expect("...identifying Recommended", tags("torUseFirst", "Recommended"), [true, false, false])
@@ -170,6 +200,18 @@ Item {
             click("torUseFirst_all")
             click("torUseContinue")
             expect("...then the next pick", fake.last("setTorUse"), ["setTorUse", "all"])
+            click("firstRunOwn")
+        },
+        function (v) {
+            expect("your own node: picked", [prop("firstRunOwn", "checked"), prop("firstRunPublic", "checked")], [true, false])
+            expect("...Use Tor for gone", shown("firstRunTorUse"), false)
+            expect("...its benefits and costs instead", shown("firstRunOwnNote"), true)
+            click("torUseContinue")
+            expect("...Continue still stores Only what identifies you", fake.last("setTorUse"), ["setTorUse", "identifying"])
+            expect("...then opens the sheet to pick where it runs", shown("networkSheet"), true)
+            expect("...on your own node", shownAny("ownNodeBranch"), true)
+            expect("...saying the wallet stays on public sources until then", shownAny("ownNodePickLine"), true)
+            v.closeSheets()
             fake.torUseJson = scene.torUse("all", true, false)
         },
         function (v) {
@@ -205,26 +247,137 @@ Item {
             expect("the sheet opens", shown("networkSheet"), true)
             expect("with no wallet open, Settings is enabled", prop("torUseSetting_identifying", "enabled"), true)
             expect("...with no lock line", shownAny("torUseLockedLine"), false)
+            expect("the sheet closed: a pick that saved nothing is dropped", v.ownNodeOpen, false)
+            expect("public sources: picked", [prop("sourcePublic", "checked"), prop("sourceOwn", "checked")], [true, false])
+            expect("...your own node marked most private", shownAny("sourceOwnBadge"), true)
+            expect("...its branch closed", shownAny("ownNodeBranch"), false)
+            var ys = ["sourceOwn", "sourcePublic", "torUseSetting_all", "torUseSetting_identifying", "torUseSetting_none",
+                      "publicTorBuiltIn", "addServerPane"].map(scene.yOf)
+            expect("one tree: own node, public sources, Use Tor for, Which Tor, then servers",
+                   ys.every(function (y, i) { return y >= 0 && (i === 0 || y > ys[i - 1]) }) ? "in order" : JSON.stringify(ys), "in order")
+            expect("...Use Tor for applies to every network", shownAny("torUseScopeLine"), true)
             expect("identifying: no per-server Tor switch", shownAny("torSwitch_zec.rocks"), false)
-            expect("...but Which Tor", shownAny("ownTorSwitch"), true)
+            expect("...Which Tor: the one with Logos, with its chip and Manage Tor",
+                   [prop("publicTorBuiltIn", "checked"), shownAny("publicManageTor"), shownAny("proxyField")], [true, true, false])
             expect("...and one operator sees both sides",
                    String(prop("oneOperatorNotice", "message")).indexOf("sees both sides") >= 0, true)
-            click("torUseSetting_all")
-            expect("a pick in Settings sends it", fake.last("setTorUse"), ["setTorUse", "all"])
+            click("publicTorOwn")
+        },
+        function (v) {
+            expect("your own Tor: its field", vis("proxyField") !== null, true)
+            expect("...no Manage Tor", shownAny("publicManageTor"), false)
+            setText("proxyField", "socks5h://127.0.0.1:9050")
+            click("saveProxyButton")
+            expect("...Use it sets the proxy", fake.last("setProxy"), ["setProxy", "socks5h://127.0.0.1:9050"])
+            click("publicTorBuiltIn")
+        },
+        function (v) {
+            expect("back to the Tor with Logos", [prop("publicTorBuiltIn", "checked"), shownAny("proxyField")], [true, false])
+            click("serversPicked")
+            expect("servers picked for you: the two operators' preset", fake.last("applyPreset"), ["applyPreset", "two-operators"])
+        },
+        function (v) {
+            expect("...shown read-only", [shownAny("addServerPane"), visCount("removeServer_zec.rocks"), shownAny("pickedHealth_zec.rocks")],
+                   [false, 0, true])
+            click("serversChosen")
+            expect("servers you choose: the list as it is", fake.last("applyPreset"), ["applyPreset", "custom"])
+            click("sourceOwn")
+        },
+        function (v) {
+            expect("your own node: picked before anything is saved", [prop("sourceOwn", "checked"), prop("sourcePublic", "checked")], [true, false])
+            expect("...nothing sent yet", fake.count("setChainSource") + fake.count("setLocalNode"), 0)
+            expect("...one note of benefits and costs", visCount("ownNodeNote"), 1)
+            expect("...no Use Tor for, no Which Tor, no servers",
+                   [shownAny("torUseSetting_identifying"), shownAny("publicTorBuiltIn"), shownAny("localSendsTorBuiltIn"),
+                    shownAny("addServerPane"), shownAny("serverRows")], [false, false, false, false, false])
+            expect("...In Logos off while Zebra is not running", prop("ownNodeInLogos", "enabled"), false)
+            vis("manageLocalNodeButton").clicked()
+            var asked = logos.requests[logos.requests.length - 1]
+            expect("Open Zcash Zebra Node raises zcash.node.configure", asked ? asked.intent : "<none>", "zcash.node.configure")
+            logos.lastCallback({ ok: false, error: "unavailable" })
+            expect("...and says when the app is missing", vis("localNodeNote") ? vis("localNodeNote").text : "", "The Zcash Zebra Node app is not installed.")
+            v.localNodeNote = ""
+            fake.localNodeJson = JSON.stringify({ available: true, network: "mainnet",
+                                                  status: { state: "running", network: "mainnet", height: 100, estimatedHeight: 100, peers: 8 } })
+        },
+        function (v) {
+            expect("In Logos on once Zebra runs this network", prop("ownNodeInLogos", "enabled"), true)
+            click("ownNodeInLogos")
+            expect("...picking it turns the local node on", fake.last("setLocalNode"), ["setLocalNode", true])
+        },
+        function (v) {
+            expect("In Logos: picked", [prop("ownNodeInLogos", "checked"), prop("ownNodeAtAddress", "checked")], [true, false])
+            expect("...the node's state and peer line", [shownAny("localNodeState"), shownAny("localNodePeersLine")], [true, true])
+            expect("...sending through public servers, over Tor, recommended",
+                   [prop("localSends_servers", "checked"), shownAny("localSends_serversBadge")], [true, true])
+            expect("...with Which Tor under it", shownAny("localSendsTorBuiltIn"), true)
+            expect("...and still no Use Tor for", shownAny("torUseSetting_identifying"), false)
+            expect("...a server is contacted", v.serversInUse, true)
+            click("localSends_node")
+            expect("through your node", fake.last("setLocalSends"), ["setLocalSends", "node"])
+        },
+        function (v) {
+            expect("through your node: picked", [prop("localSends_node", "checked"), prop("localSends_servers", "checked")], [true, false])
+            expect("...no Which Tor", shownAny("localSendsTorBuiltIn"), false)
+            expect("...no server contacted, so no server badge on Home", v.serversInUse, false)
+            click("ownNodeAtAddress")
+        },
+        function (v) {
+            expect("at an address: the field, nothing saved yet", [shownAny("ownServerField"), fake.count("setOwnServer")], [true, 0])
+            expect("...In Logos no longer shows as picked", prop("ownNodeInLogos", "checked"), false)
+            expect("...nor its sending choice", shownAny("localSendsPane"), false)
+            setText("ownServerField", "192.168.1.20")
+        },
+        function (v) {
+            expect("a LAN address is reached directly", vis("ownServerReach") ? vis("ownServerReach").text : "",
+                   "Reached directly. Tor can't reach your network.")
+            expect("...with no Tor switch and no Which Tor", [shownAny("ownServerTorSwitch"), shownAny("ownServerTorBuiltIn")], [false, false])
+            setText("ownServerField", "a".repeat(56) + ".onion:9067")
+        },
+        function (v) {
+            expect("an onion address always goes through Tor", vis("ownServerReach") ? vis("ownServerReach").text : "",
+                   "Always reached through Tor.")
+            expect("...then Which Tor, no switch", [shownAny("ownServerTorBuiltIn"), shownAny("ownServerTorSwitch")], [true, false])
+            setText("ownServerField", "node.example.com:9067")
+        },
+        function (v) {
+            expect("an internet address: Reach it through Tor, on by default",
+                   [shownAny("ownServerReach"), shownAny("ownServerTorSwitch"), prop("ownServerTorSwitch", "checked")], [false, true, true])
+            expect("...saying what going without it shows", shownAny("ownServerTorLine"), true)
+            expect("...with Which Tor", shownAny("ownServerTorBuiltIn"), true)
+            click("ownServerTorSwitch")
+        },
+        function (v) {
+            expect("switched off before Save: no Which Tor", [prop("ownServerTorSwitch", "checked"), shownAny("ownServerTorBuiltIn")], [false, false])
+            expect("...and nothing sent", fake.count("setOwnServer"), 0)
+            click("saveOwnServerButton")
+            expect("Save sends the address and its Tor switch", fake.last("setOwnServer"), ["setOwnServer", "node.example.com:9067", false])
+        },
+        function (v) {
+            expect("saved: at an address is the source", [prop("ownNodeAtAddress", "checked"), prop("ownNodeInLogos", "checked")], [true, false])
+            expect("...the field shows it as saved", prop("ownServerField", "text"), "https://node.example.com:9067")
+            expect("...its switch as saved", prop("ownServerTorSwitch", "checked"), false)
+            expect("...and its health", shownAny("ownServerHealth"), true)
+            click("ownServerTorSwitch")
+            expect("a saved address's switch applies at once", fake.last("setOwnServer"), ["setOwnServer", "https://node.example.com:9067", true])
+            click("sourcePublic")
+            expect("public sources again", fake.last("setChainSource"), ["setChainSource", "public"])
+        },
+        function (v) {
+            expect("public: its branch is back", [shownAny("publicBranch"), shownAny("ownNodeBranch")], [true, false])
             fake.torUseJson = scene.torUse("all", true, false)
         },
         function (v) {
             expect("everything: the per-server Tor switch", shownAny("torSwitch_zec.rocks"), true)
-            expect("...and Which Tor", shownAny("ownTorSwitch"), true)
+            expect("...and Which Tor", shownAny("publicTorBuiltIn"), true)
             expect("...one operator, no timing line",
                    String(prop("oneOperatorNotice", "message")).indexOf("sees both sides") >= 0, false)
             fake.torUseJson = scene.torUse("none", true, false)
         },
         function (v) {
             expect("nothing: no per-server Tor switch", shownAny("torSwitch_zec.rocks"), false)
-            expect("...no Which Tor", shownAny("ownTorSwitch"), false)
-            expect("...nor its pane", shownAny("ownTorPane"), false)
-            expect("...nor Manage Tor", shownAny("manageTorLink"), false)
+            expect("...no Which Tor", [shownAny("publicTorBuiltIn"), shownAny("publicTorOwn")], [false, false])
+            expect("...nor Manage Tor", shownAny("publicManageTor"), false)
             find("torUseExplainLink").activate()
             expect("What this means opens the text", v.torUseExplained, true)
             // A backend that predates the setting: as before, every switch through Tor.
@@ -233,6 +386,15 @@ Item {
         function (v) {
             expect("no setting from an old backend", shownAny("torUsePane"), false)
             expect("...the per-server Tor switch as before", shownAny("torSwitch_zec.rocks"), true)
+            // A backend that predates chainSource: the local node switch is all it has.
+            fake.serversJson = JSON.stringify({ proxy: "tor", localNode: true, servers: JSON.parse(scene.servers).servers })
+        },
+        function (v) {
+            expect("old backend: its local node reads as In Logos", [prop("sourceOwn", "checked"), prop("ownNodeInLogos", "checked")], [true, true])
+            expect("...with no address or sending choice it can't keep", [shownAny("ownNodeAtAddress"), shownAny("localSendsPane")], [false, false])
+            click("sourcePublic")
+            expect("...public turns the local node off", fake.last("setLocalNode"), ["setLocalNode", false])
+            fake.serversJson = scene.servers
             v.closeSheets()
             // Another app asks to unlock a wallet before the choice is made.
             fake.torUseJson = scene.torUse("identifying", false, false)
@@ -255,7 +417,7 @@ Item {
         repeat: true
         onTriggered: {
             var v = view.item
-            try { scene.steps[scene.step](v) } catch (e) { bad.push("step " + scene.step + " threw " + e) }
+            try { scene.steps[scene.step](v) } catch (e) { bad.push("step " + scene.step + " threw " + e + " at line " + e.lineNumber) }
             scene.step += 1
             if (scene.step >= scene.steps.length) {
                 driver.stop()

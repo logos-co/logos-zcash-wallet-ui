@@ -344,8 +344,9 @@ void ZcashWalletUiBackend::loadServers() {
     setServersJson(ok(r, "servers") ? stripOk(r) : QString());
 }
 
-// tor_use and set_tor_use go by name: the backend pinned in flake.lock predates them. Through
-// the bridge the generated client uses; *unknown is set by an older backend's unknown_method.
+// tor_use, set_tor_use and the chain-source setters go by name: the backend pinned in flake.lock
+// predates them. Through the bridge the generated client uses; *unknown is set by an older
+// backend's unknown_method.
 QString ZcashWalletUiBackend::callByName(const char *method, const QVariantList &args, bool *unknown) {
     nlohmann::json a = nlohmann::json::array();
     for (const QVariant &v : args) a.push_back(logos::qt::toWire(v));
@@ -903,6 +904,33 @@ QString ZcashWalletUiBackend::setLocalNode(bool enabled) {
     loadServers();
     refreshLocalNode();
     return o.value("ok").toBool() ? QString() : o.value("error").toString(QStringLiteral("the wallet backend did not answer"));
+}
+
+// A settings change the pinned backend may predate: an older one says so instead of failing quietly.
+QString ZcashWalletUiBackend::settingsByName(const char *method, const QVariantList &args) {
+    if (walletOpen()) return kLocked;
+    bool unknown = false;
+    const QString r = callByName(method, args, &unknown);
+    if (unknown) return QStringLiteral("The wallet backend is too old for this setting.");
+    const QString refused = settingsChange(r);
+    refreshLocalNode();
+    return refused;
+}
+
+QString ZcashWalletUiBackend::setChainSource(QString source) {
+    return settingsByName("set_chain_source", {source});
+}
+
+QString ZcashWalletUiBackend::setOwnServer(QString address, bool tor) {
+    return settingsByName("set_own_server", {compact(QJsonObject{{"url", address.trimmed()}, {"tor", tor}})});
+}
+
+QString ZcashWalletUiBackend::setLocalSends(QString via) {
+    return settingsByName("set_local_sends", {via});
+}
+
+QString ZcashWalletUiBackend::applyPreset(QString name) {
+    return settingsByName("apply_preset", {name});
 }
 
 // Asynchronous: with zebrad_module absent the node module waits 1.5 s for it.
