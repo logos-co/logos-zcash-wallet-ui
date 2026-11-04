@@ -160,7 +160,12 @@ Item {
         "How should this wallet use Tor? Tor hides your IP address, which can reveal where you are, from the servers "
         + "your wallet talks to, but it is slower than a direct connection. You can change this later in Servers and "
         + "privacy while no wallet is open."
+    // Most private first; identifying stays the default.
     readonly property var torUseModes: [
+        { key: "all", label: "Everything",
+          happens: "Every request to the servers goes through Tor.",
+          pros: "No server learns your IP address, and your internet provider can't see that you use Zcash.",
+          cons: "Slower syncing, which stops while Tor is down." },
         { key: "identifying", label: "Only what identifies you",
           happens: "Blocks, which are the same for everyone, come straight from the server. Looking up your transactions "
                    + "and transparent addresses, and sending, go over Tor. With servers from two operators on, blocks come "
@@ -170,10 +175,6 @@ Item {
           cons: "The server you sync from and your internet provider can see that your IP address uses a Zcash wallet, "
                 + "and roughly when the wallet was created (within about a week). With only one operator's servers on, "
                 + "that operator sees both sides and could try to match them by timing." },
-        { key: "all", label: "Everything",
-          happens: "Every request to the servers goes through Tor.",
-          pros: "No server learns your IP address, and your internet provider can't see that you use Zcash.",
-          cons: "Slower syncing, which stops while Tor is down." },
         { key: "none", label: "Nothing",
           happens: "Every request goes directly to the servers. Tor isn't used, so onion services are off.",
           pros: "The fastest choice, and it works where Tor is blocked.",
@@ -958,6 +959,110 @@ Item {
             }
             LogosText { objectName: "torNote"; visible: text !== ""; Layout.fillWidth: true; textFormat: Text.PlainText
                         wrapMode: Text.Wrap; color: Theme.palette.error; text: root.torNote }
+            // Most private first: your own node, then Use Tor for from Everything to Nothing.
+            ColumnLayout {
+                id: localNodePane
+                objectName: "localNodePane"
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacing.small
+                spacing: Theme.spacing.small
+                // Read while on screen only: an absent zebrad_module costs the node module 1.5 s a read.
+                onVisibleChanged: if (visible && root.ready) backend.refreshLocalNode()
+                Component.onCompleted: if (visible && root.ready) backend.refreshLocalNode()
+                Timer {
+                    interval: root.localStatus ? 3000 : 15000
+                    repeat: true
+                    running: localNodePane.visible && root.ready
+                    onTriggered: backend.refreshLocalNode()
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacing.small
+                    LogosText { text: "Run your own node"; font.weight: Theme.typography.weightMedium }
+                    LogosBadge { text: "Most private"; color: Theme.palette.success }
+                    Item { Layout.fillWidth: true }
+                    LogosSwitch {
+                        objectName: "localNodeSwitch"
+                        text: "Use my local node"
+                        checkable: false
+                        checked: root.localNodeOn
+                        enabled: root.ready && !root.networkLocked && (root.localNodeOn || root.localNodeAvailable)
+                        onClicked: root.setLocalNode(!root.localNodeOn)
+                    }
+                }
+                LogosText {
+                    objectName: "ownNodeBenefits"
+                    Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.StyledText; color: Theme.palette.textSecondary
+                    text: "<b>Benefits:</b> the wallet reads only from your own Zebra node, so no server sees which blocks, "
+                          + "transactions or transparent addresses it looks up, or your IP address with them. Other nodes see "
+                          + "only that this computer runs a Zcash node."
+                }
+                LogosText {
+                    objectName: "ownNodeCosts"
+                    Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.StyledText; color: Theme.palette.textSecondary
+                    text: "<b>Costs:</b> about 300 GB of disk on mainnet, unpruned, and a first sync that takes hours to days. "
+                          + "It must be running and synced whenever you use the wallet."
+                }
+                LogosText {
+                    Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
+                    text: "Reads come from your own Zcash node over Logos IPC, so no server sees them. Transactions you send "
+                          + "still go to the servers below, and every two minutes one of them is asked for its latest block, to "
+                          + "check that your node is on the same chain. With no server enabled, your node broadcasts them itself, "
+                          + "over its own peer connections and without Tor, and that check stops. A change applies the next time a "
+                          + "wallet opens."
+                }
+                LogosText {
+                    objectName: "localNodeState"
+                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.tiny; textFormat: Text.PlainText; wrapMode: Text.Wrap
+                    font.weight: Theme.typography.weightMedium
+                    color: root.localNodeAvailable ? Theme.palette.success : Theme.palette.text
+                    text: root.localNodeLine()
+                }
+                LogosText {
+                    objectName: "localNodeDetail"
+                    Layout.fillWidth: true; visible: text !== ""; textFormat: Text.PlainText; wrapMode: Text.Wrap
+                    color: Theme.palette.textSecondary
+                    text: root.localNodeDetail()
+                }
+                LogosText {
+                    objectName: "localNodeCrossCheck"
+                    Layout.fillWidth: true; visible: text !== ""; textFormat: Text.PlainText; wrapMode: Text.Wrap
+                    color: Theme.palette.textSecondary
+                    text: root.crossCheckLine()
+                }
+                LogosNotice {
+                    readonly property var check: root.sync.crossCheck
+                    objectName: "localNodeDiffersNotice"
+                    Layout.fillWidth: true
+                    severity: LogosNotice.Error
+                    shown: !!check && check.verdict === "differs"
+                    message: shown ? "Your node and " + root.serverName(check.server) + " have different blocks at "
+                                     + root.fmtHeight(Math.min(check.nodeTip, check.serverTip)) + ", so one of them is on a "
+                                     + "false chain. Until they agree, do not count on new payments shown here." : ""
+                }
+                LogosNotice {
+                    objectName: "localNodeDownNotice"
+                    Layout.fillWidth: true
+                    severity: LogosNotice.Warning
+                    shown: root.localNodeOn && root.localNode.network !== undefined && !root.localNodeAvailable
+                    message: "Reads go to your node, which is not running for " + root.activeNetwork + ". The wallet cannot sync until it is."
+                }
+                LogosNotice {
+                    objectName: "localNodeBroadcastNotice"
+                    Layout.fillWidth: true
+                    severity: LogosNotice.Warning
+                    shown: root.localNodeOn && root.serversRead && !root.broadcastServer
+                    message: "No server is enabled, so your node sends your transactions itself, without Tor: "
+                             + "its peers see them come from this computer's IP address."
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    LogosButton { objectName: "manageLocalNodeButton"; text: "Open Zcash Zebra Node…"; enabled: root.ready; onClicked: root.manageLocalNode() }
+                    LogosText { objectName: "localNodeNote"; visible: text !== ""; Layout.fillWidth: true; textFormat: Text.PlainText
+                                wrapMode: Text.Wrap; color: Theme.palette.error; text: root.localNodeNote }
+                }
+            }
             // One setting for every network, kept by the node module; a backend that predates it has none.
             ColumnLayout {
                 objectName: "torUsePane"
@@ -1229,94 +1334,6 @@ Item {
                 message: shown ? root.directServers.map(function (d) { return d.label || d.id }).join(", ")
                                  + (root.directServers.length === 1 ? " sees" : " see")
                                  + " this computer's IP address, and can link it to this wallet's transactions." : ""
-            }
-            ColumnLayout {
-                id: localNodePane
-                objectName: "localNodePane"
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.spacing.small
-                spacing: Theme.spacing.small
-                // Read while on screen only: an absent zebrad_module costs the node module 1.5 s a read.
-                onVisibleChanged: if (visible && root.ready) backend.refreshLocalNode()
-                Component.onCompleted: if (visible && root.ready) backend.refreshLocalNode()
-                Timer {
-                    interval: root.localStatus ? 3000 : 15000
-                    repeat: true
-                    running: localNodePane.visible && root.ready
-                    onTriggered: backend.refreshLocalNode()
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    LogosText { text: "Your node"; font.pixelSize: 15 }
-                    Item { Layout.fillWidth: true }
-                    LogosSwitch {
-                        objectName: "localNodeSwitch"
-                        text: "Use my local node"
-                        checkable: false
-                        checked: root.localNodeOn
-                        enabled: root.ready && !root.networkLocked && (root.localNodeOn || root.localNodeAvailable)
-                        onClicked: root.setLocalNode(!root.localNodeOn)
-                    }
-                }
-                LogosText {
-                    Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.palette.textSecondary
-                    text: "Reads come from your own Zcash node over Logos IPC, so no server sees them. Transactions you send "
-                          + "still go to the servers above, and every two minutes one of them is asked for its latest block, to "
-                          + "check that your node is on the same chain. With no server enabled, your node broadcasts them itself, "
-                          + "over its own peer connections and without Tor, and that check stops. A change applies the next time a "
-                          + "wallet opens."
-                }
-                LogosText {
-                    objectName: "localNodeState"
-                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.tiny; textFormat: Text.PlainText; wrapMode: Text.Wrap
-                    font.weight: Theme.typography.weightMedium
-                    color: root.localNodeAvailable ? Theme.palette.success : Theme.palette.text
-                    text: root.localNodeLine()
-                }
-                LogosText {
-                    objectName: "localNodeDetail"
-                    Layout.fillWidth: true; visible: text !== ""; textFormat: Text.PlainText; wrapMode: Text.Wrap
-                    color: Theme.palette.textSecondary
-                    text: root.localNodeDetail()
-                }
-                LogosText {
-                    objectName: "localNodeCrossCheck"
-                    Layout.fillWidth: true; visible: text !== ""; textFormat: Text.PlainText; wrapMode: Text.Wrap
-                    color: Theme.palette.textSecondary
-                    text: root.crossCheckLine()
-                }
-                LogosNotice {
-                    readonly property var check: root.sync.crossCheck
-                    objectName: "localNodeDiffersNotice"
-                    Layout.fillWidth: true
-                    severity: LogosNotice.Error
-                    shown: !!check && check.verdict === "differs"
-                    message: shown ? "Your node and " + root.serverName(check.server) + " have different blocks at "
-                                     + root.fmtHeight(Math.min(check.nodeTip, check.serverTip)) + ", so one of them is on a "
-                                     + "false chain. Until they agree, do not count on new payments shown here." : ""
-                }
-                LogosNotice {
-                    objectName: "localNodeDownNotice"
-                    Layout.fillWidth: true
-                    severity: LogosNotice.Warning
-                    shown: root.localNodeOn && root.localNode.network !== undefined && !root.localNodeAvailable
-                    message: "Reads go to your node, which is not running for " + root.activeNetwork + ". The wallet cannot sync until it is."
-                }
-                LogosNotice {
-                    objectName: "localNodeBroadcastNotice"
-                    Layout.fillWidth: true
-                    severity: LogosNotice.Warning
-                    shown: root.localNodeOn && root.serversRead && !root.broadcastServer
-                    message: "No server is enabled, so your node sends your transactions itself, without Tor: "
-                             + "its peers see them come from this computer's IP address."
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    LogosButton { objectName: "manageLocalNodeButton"; text: "Manage local node…"; enabled: root.ready; onClicked: root.manageLocalNode() }
-                    LogosText { objectName: "localNodeNote"; visible: text !== ""; Layout.fillWidth: true; textFormat: Text.PlainText
-                                wrapMode: Text.Wrap; color: Theme.palette.error; text: root.localNodeNote }
-                }
             }
 
 

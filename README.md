@@ -28,14 +28,15 @@ It talks only to `zcash_wallet_backend`.
   against that commit.
 - **Use Tor for**, asked once, before the first wallet is created, restored or opened: the
   screen takes the place of the Wallets screen while the node module's `torUseChosen` is false.
-  - Three options, each with what happens, its pros and its cons: **Only what identifies you**
-    (tagged Recommended), **Everything** and **Nothing**.
-  - A fresh install has the first selected. An existing one has its routing so far, tagged
+  - Three options, most private first, each with what happens, its pros and its cons:
+    **Everything**, **Only what identifies you** (tagged Recommended) and **Nothing**.
+  - A fresh install has Only what identifies you selected. An existing one has its routing so far, tagged
     Current, so Continue keeps it.
   - Continue stores the choice for every network (`set_tor_use`), and the screen does not come
     back. An unlock another app asks for waits for it.
   - It never shows over an open wallet, nor with a backend too old to have the setting.
-- **Servers and privacy:** **Use Tor for** has the same three options, with their text behind
+- **Servers and privacy:** Network privacy lists the most private first: **Run your own node**
+  (below), then **Use Tor for**, with the same three options, with their text behind
   **What this means**. While a wallet is open it shows but is disabled: "Close the wallet to
   change this." Servers that use Tor reach it through the Tor that comes with Logos
   (`tor_module`), with nothing to install or run.
@@ -68,7 +69,8 @@ It talks only to `zcash_wallet_backend`.
     the network on show while this sheet is open. Nothing is checked otherwise. A server
     switched on reads "checking…" until its first check answers or fails; through Tor that
     can take a while, as the check's circuit is built.
-- **Use my local node** (Servers and privacy): reads come from `zebrad_module`'s node over
+- **Run your own node**, at the top of Network privacy, with its benefits and costs. **Use my
+  local node**: reads come from `zebrad_module`'s node over
   Logos IPC; sends still go to the servers, and with no server enabled the node
   broadcasts them itself, without Tor. The pane shows the node's state, height and peers, or
   that it is not installed or not running for this network, and opens the Zcash Zebra Node app

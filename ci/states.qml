@@ -11,9 +11,11 @@ Item {
         signal viewModuleReadyChanged(string moduleName, bool isReady)
         signal intentRequested(string requestId, string intent, var params, string requesterName)
         property var responses: []
+        property var requests: []
+        property var lastCallback: null
         function module(name) { return fake }
         function isViewModuleReady(name) { return true }
-        function request(intent, params, cb) {}
+        function request(intent, params, cb) { requests = requests.concat([{ intent: intent, params: params }]); lastCallback = cb }
         function respond(id, ok, result, error) { responses = responses.concat([[id, ok, error]]) }
         function watch(reply, ok, err) { ok(reply) }
     }
@@ -209,6 +211,19 @@ Item {
             expect("...but Which Tor", shownAny("ownTorSwitch"), true)
             expect("...and one operator sees both sides",
                    String(prop("oneOperatorNotice", "message")).indexOf("sees both sides") >= 0, true)
+            var vis = function (n) { return findAll(view.item, n, 0, []).filter(function (o) { return o.visible })[0] || null }
+            var ys = ["localNodePane", "torUseSetting_all", "torUseSetting_identifying", "torUseSetting_none"].map(function (n) {
+                var o = vis(n); return o ? Math.round(o.mapToItem(null, 0, 0).y) : -1 })
+            expect("most private first: your own node, then Everything to Nothing",
+                   ys.every(function (y, i) { return y >= 0 && (i === 0 || y > ys[i - 1]) }) ? "in order" : JSON.stringify(ys), "in order")
+            expect("...with its benefits and costs", [vis("ownNodeBenefits"), vis("ownNodeCosts")].every(function (o) { return o !== null }), true)
+            expect("...and Servers below", vis("localNodePane").mapToItem(null, 0, 0).y < vis("addServerPane").mapToItem(null, 0, 0).y, true)
+            vis("manageLocalNodeButton").clicked()
+            var asked = logos.requests[logos.requests.length - 1]
+            expect("Open Zcash Zebra Node raises zcash.node.configure", asked ? asked.intent : "<none>", "zcash.node.configure")
+            logos.lastCallback({ ok: false, error: "unavailable" })
+            expect("...and says when the app is missing", vis("localNodeNote") ? vis("localNodeNote").text : "", "The Zcash Zebra Node app is not installed.")
+            v.localNodeNote = ""
             click("torUseSetting_all")
             expect("a pick in Settings sends it", fake.last("setTorUse"), ["setTorUse", "all"])
             fake.torUseJson = scene.torUse("all", true, false)
