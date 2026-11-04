@@ -155,7 +155,7 @@ jobs:
               echo "::error::unexpected ReferenceError above"; exit 1
             fi'
 
-      - name: Gate C — drive the first-run Tor choice and the Settings lock against a fake backend
+      - name: Gate C — drive the first-run choice, the chain source and the Settings lock against a fake backend
         working-directory: logos-zcash-wallet-ui
         run: |
           # shellcheck disable=SC2016  # the $(...) below is for the inner bash -c
