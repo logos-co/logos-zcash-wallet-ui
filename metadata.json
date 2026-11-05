@@ -1,7 +1,7 @@
 {
   "name": "zcash_wallet_ui",
   "display_name": "Zcash Wallet",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "ui_qml",
   "interface": "universal",
   "category": "wallet",
@@ -11,7 +11,7 @@
   "icon": "src/icons/zcash_wallet.png",
   "view": "qml/ZcashWalletView.qml",
   "dependencies": [
-    "zcash_wallet_backend"
+    { "name": "zcash_wallet_backend", "version": "~0.2.0" }
   ],
   "provides": [
     {
