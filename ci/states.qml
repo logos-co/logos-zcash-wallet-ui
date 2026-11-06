@@ -444,6 +444,20 @@ Item {
         function (v) {
             expect("...then its sheet opens", shown("openWalletSheet"), true)
             expect("...for that wallet", prop("openNameField", "text"), "w")
+        },
+        function (v) {
+            // A short window: the Node sheet scrolls, and its bar must leave the pane's right edge clear.
+            v.closeSheets()
+            scene.height = 560
+            find("networkSheet").open()
+        },
+        function (v) {
+            var sv = find("networkSheet").contentItem, line = vis("chainNetworkLine")
+            expect("a short window: the Node sheet scrolls", sv.effectiveScrollBarWidth > 0, true)
+            expect("...and its bar leaves the pane's right edge clear",
+                   line ? Math.round(line.mapToItem(sv, line.width, 0).x) <= sv.width - sv.effectiveScrollBarWidth : "<no chainNetworkLine>", true)
+            v.closeSheets()
+            scene.height = 900
         }
     ]
     property int step: 0

@@ -1754,7 +1754,7 @@ Item {
                 clip: true
                 contentWidth: availableWidth
                 ColumnLayout {
-                    width: homeScroll.availableWidth
+                    width: homeScroll.availableWidth - homeScroll.effectiveScrollBarWidth
                     spacing: Theme.spacing.medium
 
                     LogosStatCard {
@@ -2024,7 +2024,7 @@ Item {
                 clip: true
                 contentWidth: availableWidth
                 ColumnLayout {
-                    width: sendScroll.availableWidth
+                    width: sendScroll.availableWidth - sendScroll.effectiveScrollBarWidth
                     spacing: Theme.spacing.small
 
                     LogosText {
@@ -2323,7 +2323,7 @@ Item {
                 clip: true
                 contentWidth: availableWidth
                 ColumnLayout {
-                    width: settingsScroll.availableWidth
+                    width: settingsScroll.availableWidth - settingsScroll.effectiveScrollBarWidth
                     spacing: Theme.spacing.small
 
                     LogosText { text: "Wallet"; font.pixelSize: 16 }
@@ -2623,7 +2623,7 @@ Item {
             implicitHeight: Math.min(reviewCol.implicitHeight, Math.max(200, root.height - 240))
             ColumnLayout {
                 id: reviewCol
-                width: reviewScroll.availableWidth
+                width: reviewScroll.availableWidth - reviewScroll.effectiveScrollBarWidth
                 spacing: Theme.spacing.small
 
                 LogosStageLane {
@@ -2830,7 +2830,7 @@ Item {
             implicitHeight: Math.min(migrationCol.implicitHeight, Math.max(240, root.height - 240))
             ColumnLayout {
                 id: migrationCol
-                width: migrationScroll.availableWidth
+                width: migrationScroll.availableWidth - migrationScroll.effectiveScrollBarWidth
                 spacing: Theme.spacing.small
 
                 LogosText { visible: !root.plan && root.migrationJob === "plan"; color: Theme.palette.textSecondary
@@ -3100,8 +3100,9 @@ Item {
             contentWidth: availableWidth
             implicitHeight: Math.min(networkSheetLoader.implicitHeight, Math.max(200, root.height - 200))
             Loader {
+                // Less the bar: it is drawn over the content and would take clicks meant for the right edge.
                 id: networkSheetLoader
-                width: networkSheetScroll.availableWidth
+                width: networkSheetScroll.availableWidth - networkSheetScroll.effectiveScrollBarWidth
                 active: networkSheet.visible
                 sourceComponent: networkPane
             }
