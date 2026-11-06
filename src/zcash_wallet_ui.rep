@@ -33,7 +33,7 @@ class ZcashWalletUi
     // local_node() plus the network it describes, read while the servers pane is on screen:
     // { network, enabled, available, status?, error? }, status being zebrad_module's status().
     PROP(QString localNodeJson="" READONLY)
-    // tor_use(): { torUse, torUseChosen, torUseMigrated }, one setting for every network. "" until
+    // tor_use() for the active network: { torUse, torUseChosen, torUseMigrated, network }. "" until
     // read, and from a backend too old to have it: the view then asks nothing.
     PROP(QString torUseJson="" READONLY)
     // history(page): { page, pageSize, rows }, amounts with ...Zec display strings.

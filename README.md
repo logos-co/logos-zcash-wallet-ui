@@ -26,21 +26,24 @@ It talks only to `zcash_wallet_backend`.
   will be typed back. Both are the account kit's `PhraseGrid`, vendored in `qml/accountkit/` by
   `logos-account-kit/scripts/vendor.sh` at the commit in its `VERSION`; CI checks the copy
   against that commit.
-- **Where the wallet gets Zcash's chain**, asked once, before the first wallet is created,
-  restored or opened: the screen takes the place of the Wallets screen while the node module's
-  `torUseChosen` is false.
+- **Network picker** in the header, enabled only while no wallet is open; it shows the open
+  wallet's network.
+- **Where the wallet gets Zcash's chain**, asked per network, the first time each is used and
+  before a wallet on it is created, restored or opened: the screen names the network and takes
+  the place of the Wallets screen while the node module's `torUseChosen` is false for it. Its
+  sections and words are the Bitcoin and Monero wallets'.
   - **Your own node** (tagged Most private) or **Public sources**, which is preselected.
   - Under Public sources, **Use Tor for**, most private first, each with what happens, its pros
     and its cons: **Everything**, **Only what identifies you** (tagged Recommended) and
     **Nothing**. A fresh install has Only what identifies you selected. An existing one has its
     routing so far, tagged Current, so Continue keeps it.
-  - Continue stores the choice for every network (`set_tor_use`), and the screen does not come
-    back. With your own node it keeps the node module's mode (Only what identifies you on a
-    fresh install) and opens Servers and privacy to pick where the node runs.
+  - Continue stores the choice for the active network (`set_tor_use`), and the screen does not
+    come back on it. With your own node it keeps the node module's mode (Only what identifies
+    you on a fresh install) and opens Node to pick where the node runs.
   - An unlock another app asks for waits for it. It never shows over an open wallet, nor with a
     backend too old to have the setting.
-- **Servers and privacy** reads top to bottom as one choice, **Where the wallet gets Zcash's
-  chain**. Each setting shows only while it can change something. While a wallet is open the
+- **Node** reads top to bottom as one choice, **Where the wallet gets Zcash's chain**, for the
+  network it names. Each setting shows only while it can change something. While a wallet is open the
   sheet keeps its shape but is read-only: changes apply when a wallet opens.
   - **Your own node**, with one note of its benefits and costs, then where it runs:
     - **In Logos**: the Zebra node of the Zcash Zebra Node app, read over Logos IPC
@@ -58,14 +61,16 @@ It talks only to `zcash_wallet_backend`.
   - **Public sources**: **Servers picked for you** (the two operators' preset) or **Servers
     you choose** (the list, with **Use** switches, servers you add by address, such as
     `192.168.1.20` or `zebra.lan:9067`, and Remove). Then **Use Tor for**, with the same three
-    options behind **What this means**, for every network that uses public sources.
+    options, each with what happens, pros and cons, kept per network.
     - With Only what identifies you, blocks come straight from the servers, and lookups and
       sends go through Tor. With one operator in use, its notice says that operator sees both
       sides and could match them by timing.
     - With Everything, every https server you choose has its own **Tor** switch. Turning it off
       first says what that server would see, and a notice names every server reached without
       Tor.
-    - Servers from more than one operator check each other, as the info button explains. A
+    - With Everything or Nothing, servers from more than one operator check each other's
+      blocks; with Only what identifies you, blocks come from one and lookups go to the other,
+      as the info button explains. A
       notice asks for a second operator when only one is in use. Servers on your own network
       are reached directly; an onion service always goes through Tor, so Nothing leaves it off.
   - **Which Tor** shows in whichever branch uses Tor: **The Tor that comes with Logos**

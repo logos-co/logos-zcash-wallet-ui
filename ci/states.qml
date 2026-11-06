@@ -181,6 +181,13 @@ Item {
                    [prop("firstRunPublic", "checked"), prop("firstRunOwn", "checked")], [true, false])
             expect("...with Use Tor for under it", shown("firstRunTorUse"), true)
             expect("...and your own node marked most private", shown("firstRunOwnBadge"), true)
+            expect("...for this network", prop("torUseNetworkLine", "text"), "For mainnet. Each network has its own setting, asked the first time you use it.")
+            expect("...in the shared words", prop("torUseIntro", "text").indexOf("Your own node is the most private."), 0)
+            expect("...and what every mode shares", shown("torUseFirstEveryMode"), true)
+            expect("...each option with what happens, pros and cons", ["Happens_", "Pros_", "Cons_"].map(function (k) { return shown("torUseFirst" + k + "identifying") }),
+                   [true, true, true])
+            expect("the network, picked in the header", prop("networkPicker", "displayText") + " " + prop("networkPicker", "enabled"), "mainnet true")
+            expect("...not on the Wallets screen", shown("networkBox"), "<no networkBox>")
             expect("fresh install: identifying preselected", checks("torUseFirst"), [true, false, false])
             expect("...nothing tagged Current", tags("torUseFirst", "Current"), [false, false, false])
             expect("...identifying Recommended", tags("torUseFirst", "Recommended"), [true, false, false])
@@ -205,7 +212,7 @@ Item {
         function (v) {
             expect("your own node: picked", [prop("firstRunOwn", "checked"), prop("firstRunPublic", "checked")], [true, false])
             expect("...Use Tor for gone", shown("firstRunTorUse"), false)
-            expect("...its benefits and costs instead", shown("firstRunOwnNote"), true)
+            expect("...its benefits and costs instead", shown("firstRunOwnNote") + " " + shown("firstRunOwnNext"), "true true")
             click("torUseContinue")
             expect("...Continue still stores Only what identifies you", fake.last("setTorUse"), ["setTorUse", "identifying"])
             expect("...then opens the sheet to pick where it runs", shown("networkSheet"), true)
@@ -220,6 +227,20 @@ Item {
             var n = fake.count("setTorUse")
             v.chooseTorUse("none")
             expect("...and chooseTorUse does nothing", fake.count("setTorUse"), n)
+            v.firstRunPicked = "own"
+            fake.networksJson = JSON.stringify({ networks: ["mainnet", "testnet", "regtest"], active: "testnet" })
+            fake.torUseJson = JSON.stringify({ torUse: "identifying", torUseChosen: false, torUseMigrated: false, network: "testnet" })
+        },
+        function (v) {
+            expect("another network asks for itself", shown("torUsePage") + " " + prop("torUseNetworkLine", "text"),
+                   "true For testnet. Each network has its own setting, asked the first time you use it.")
+            expect("...from public sources again", prop("firstRunPublic", "checked"), true)
+            expect("...the header shows it", prop("networkPicker", "displayText"), "testnet")
+            fake.networksJson = JSON.stringify({ networks: ["mainnet", "testnet", "regtest"], active: "mainnet" })
+            fake.torUseJson = scene.torUse("all", true, false)
+        },
+        function (v) {
+            expect("back on mainnet: chosen there", shown("torUsePage") + " " + prop("networkPicker", "displayText"), "false mainnet")
             // Not chosen, but a wallet is open.
             fake.torUseJson = scene.torUse("identifying", false, false)
             fake.serversJson = scene.servers
@@ -255,7 +276,9 @@ Item {
                       "publicTorBuiltIn", "addServerPane"].map(scene.yOf)
             expect("one tree: own node, public sources, Use Tor for, Which Tor, then servers",
                    ys.every(function (y, i) { return y >= 0 && (i === 0 || y > ys[i - 1]) }) ? "in order" : JSON.stringify(ys), "in order")
-            expect("...Use Tor for applies to every network", shownAny("torUseScopeLine"), true)
+            expect("...for this network", prop("chainNetworkLine", "text"), "For mainnet. Each network has its own.")
+            expect("...and what every mode shares", shownAny("torUseEveryMode"), true)
+            expect("...options with what happens, pros and cons", shownAny("torUseSettingCons_identifying"), true)
             expect("identifying: no per-server Tor switch", shownAny("torSwitch_zec.rocks"), false)
             expect("...Which Tor: the one with Logos, with its chip and Manage Tor",
                    [prop("publicTorBuiltIn", "checked"), shownAny("publicManageTor"), shownAny("proxyField")], [true, true, false])
@@ -378,8 +401,6 @@ Item {
             expect("nothing: no per-server Tor switch", shownAny("torSwitch_zec.rocks"), false)
             expect("...no Which Tor", [shownAny("publicTorBuiltIn"), shownAny("publicTorOwn")], [false, false])
             expect("...nor Manage Tor", shownAny("publicManageTor"), false)
-            find("torUseExplainLink").activate()
-            expect("What this means opens the text", v.torUseExplained, true)
             // A backend that predates the setting: as before, every switch through Tor.
             fake.torUseJson = ""
         },

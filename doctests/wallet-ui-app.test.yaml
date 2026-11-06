@@ -186,15 +186,34 @@ sections:
               find_value: "zcashWalletRoot"
               method: "selectNetwork"
               args: ["regtest"]
-            - name: "The app is on regtest"
+            - name: "The app is on regtest, as the header shows"
               action: expect_property
-              find_value: "networkChip"
-              property: "text"
+              find_value: "networkPicker"
+              property: "displayText"
               value: "regtest"
+              timeout: 30000
+            - name: "The Use Tor for shown is regtest's"
+              # Read after the network list; an older backend names no network, and the view falls back to the active one.
+              action: expect_property
+              find_value: "zcashWalletRoot"
+              property: "torUseNetwork"
+              value: "regtest"
+              timeout: 30000
+            - name: "Each network asks once for its own setting: Everything again on regtest"
+              # An older backend asks once for every network; the call then does nothing.
+              action: call_method
+              find_value: "zcashWalletRoot"
+              method: "chooseTorUse"
+              args: ["all"]
+            - name: "The Wallets screen shows for regtest"
+              action: expect_property
+              find_value: "walletsPage"
+              property: "visible"
+              value: true
               timeout: 30000
               screenshot: "wallet-ui-wallets.png"
 
-            - name: "Open Servers and privacy"
+            - name: "Open Node"
               action: click_object
               find_value: "networkSettingsButton"
             - name: "The sheet opens"
