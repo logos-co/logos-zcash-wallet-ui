@@ -312,6 +312,10 @@ Item {
             expect("back to the Tor with Logos", [prop("publicTorBuiltIn", "checked"), shownAny("proxyField")], [true, false])
             click("serversPicked")
             expect("servers picked for you: the two operators' preset", fake.last("applyPreset"), ["applyPreset", "two-operators"])
+            expect("...in every mode one operator checks the blocks from the other",
+                   [String(prop("serversPickedNote", "text")).indexOf("each checking the blocks") >= 0,
+                    String(prop("operatorsInfo", "text")).indexOf("checks the first one's chain") >= 0,
+                    String(prop("operatorsInfo", "text")).indexOf("only a server of the operator you sync from") >= 0], [true, true, true])
         },
         function (v) {
             expect("...shown read-only", [shownAny("addServerPane"), visCount("removeServer_zec.rocks"), shownAny("pickedHealth_zec.rocks")],
@@ -348,6 +352,9 @@ Item {
             expect("...the node's state and peer line", [shownAny("localNodeState"), shownAny("localNodePeersLine")], [true, true])
             expect("...sending through public servers, over Tor, recommended",
                    [prop("localSends_servers", "checked"), shownAny("localSends_serversBadge")], [true, true])
+            expect("...and the node is never told who sent it",
+                   [String(prop("localSends_serversNote", "text")).indexOf("isn't told who sent it") >= 0, String(prop("localSends_serversNote", "text")).indexOf("through your node")],
+                   [true, -1])
             expect("...with Which Tor under it", shownAny("localSendsTorBuiltIn"), true)
             expect("...and still no Use Tor for", shownAny("torUseSetting_identifying"), false)
             expect("...a server is contacted", v.serversInUse, true)
