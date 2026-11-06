@@ -169,8 +169,8 @@ Item {
                      : "For " + n + ". Each network has its own."
     }
     readonly property string ownNodeSummary: "A Zebra node, in Logos or at an address."
-    readonly property string ownNodeNext: "Continue opens Node, where you pick the node in Logos or one at an address. Until you "
-                                          + "save one, the wallet uses public sources."
+    readonly property string ownNodeNext: "Continue opens Node, where you pick the node in Logos or one at an address. Until "
+                                          + "one is set up, the wallet uses public sources."
     readonly property string publicSummary: "Zcash servers run by other people."
     readonly property string torUseTorIntro: "Tor hides your IP address, which can reveal where you are, from public sources, but "
                                              + "it is slower than a direct connection."
