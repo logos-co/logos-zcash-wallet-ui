@@ -40,7 +40,9 @@ It talks only to `zcash_wallet_backend`.
 - **Node** reads top to bottom as one choice, **Where the wallet gets Zcash's chain**, for the
   network it names. Each setting shows only while it can change something. While a wallet is open the
   sheet keeps its shape but is read-only: changes apply when a wallet opens.
-  - **Your own node**, its benefits and costs behind an "i", then where it runs:
+  - **Your own node**, its benefits, costs and where payments go behind an "i", then where it
+    runs. Picked from public sources, it preselects **In Logos**, which takes over at once when
+    Zebra runs this network, or as soon as it does while the choice stays open:
     - **In Logos**: the Zebra node of the Zcash Zebra Node app, read over Logos IPC
       (`set_local_node`). It can be picked only while Zebra runs this network. Its state,
       height and peers show here, with **Open Zcash Zebra Node…** (`zcash.node.configure`) and
@@ -52,7 +54,10 @@ It talks only to `zcash_wallet_backend`.
     - **At an address**: a lightwalletd you run elsewhere (`set_own_server`). Its address
       decides Tor: one on your network is reached directly, an onion address always through
       Tor, and any other has a **Reach it through Tor** switch, on by default. Use Tor for
-      doesn't apply to it. The address is kept when you switch away.
+      doesn't apply to it. The address is kept when you switch away. Once it is saved, and when
+      the node module lists `own` in `localSendsFor`, the same **Sending payments** setting
+      shows under it: **Through public servers, over Tor** (Recommended) or **Through your
+      server**, where no public server is contacted. Without that field, your server sends them.
   - **Public sources**: **Servers picked for you** (the two operators' preset) or **Servers
     you choose** (the list, with **Use** switches, servers you add by address, such as
     `192.168.1.20` or `zebra.lan:9067`, and Remove). Then **Use Tor for**, with the same three

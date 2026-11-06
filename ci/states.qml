@@ -329,6 +329,10 @@ Item {
                    [shownAny("torUseSetting_identifying"), shownAny("publicTorBuiltIn"), shownAny("localSendsTorBuiltIn"),
                     shownAny("addServerPane"), shownAny("serverRows")], [false, false, false, false, false])
             expect("...In Logos off while Zebra is not running", prop("ownNodeInLogos", "enabled"), false)
+            expect("...but preselected, the default place", [prop("ownNodeInLogos", "checked"), prop("ownNodeAtAddress", "checked")], [true, false])
+            expect("...taking over once Zebra runs", vis("ownNodePickLine") ? vis("ownNodePickLine").text : "",
+                   "In Logos takes over once Zebra is running for mainnet. Until then the wallet keeps using public sources.")
+            expect("...with no sending choice until it does", shownAny("localSendsPane"), false)
             vis("manageLocalNodeButton").clicked()
             var asked = logos.requests[logos.requests.length - 1]
             expect("Open Zcash Zebra Node raises zcash.node.configure", asked ? asked.intent : "<none>", "zcash.node.configure")
@@ -340,8 +344,9 @@ Item {
         },
         function (v) {
             expect("In Logos on once Zebra runs this network", prop("ownNodeInLogos", "enabled"), true)
+            expect("...and preselected, it takes over by itself", [fake.count("setLocalNode"), v.chainSource], [1, "local"])
             click("ownNodeInLogos")
-            expect("...picking it turns the local node on", fake.last("setLocalNode"), ["setLocalNode", true])
+            expect("...picking it again sends nothing more", [fake.count("setLocalNode"), fake.last("setLocalNode")], [1, ["setLocalNode", true]])
         },
         function (v) {
             expect("In Logos: picked", [prop("ownNodeInLogos", "checked"), prop("ownNodeAtAddress", "checked")], [true, false])
@@ -396,8 +401,54 @@ Item {
             expect("...the field shows it as saved", prop("ownServerField", "text"), "https://node.example.com:9067")
             expect("...its switch as saved", prop("ownServerTorSwitch", "checked"), false)
             expect("...and its health", shownAny("ownServerHealth"), true)
+            expect("an older node module: no sending choice at an address", shownAny("ownSendsPane"), false)
+            expect("...and the note says such a server sends itself",
+                   String(prop("ownNodeNote", "text")).indexOf("always hands them to its node") >= 0, true)
+            fake.patchServers({ localSendsFor: ["local", "own"] })
+        },
+        function (v) {
+            expect("a node module that has it: Sending payments at an address", shownAny("ownSendsPane"), true)
+            expect("...as set for In Logos: through your server", [prop("ownSends_node", "checked"), prop("ownSends_servers", "checked")],
+                   [true, false])
+            expect("...naming your server", [prop("ownSends_node", "text"), String(prop("ownSends_nodeNote", "text")).indexOf("Your server's node") >= 0],
+                   ["Through your server", true])
+            expect("...and the note says so", String(prop("ownNodeNote", "text")).indexOf("a server at an address hands them to its node") >= 0, true)
+            expect("...no Which Tor for sends", shownAny("ownSendsTorBuiltIn"), false)
+            click("ownSends_servers")
+            expect("through public servers", fake.last("setLocalSends"), ["setLocalSends", "servers"])
+        },
+        function (v) {
+            expect("through public servers: picked, recommended",
+                   [prop("ownSends_servers", "checked"), shownAny("ownSends_serversBadge"), prop("ownSends_node", "checked")], [true, true, false])
+            expect("...through the list's operators", vis("ownSendsServersLine") ? vis("ownSendsServersLine").text : "",
+                   "Through zec.rocks, the servers under Public sources.")
+            expect("...your server's node isn't the one that sends it",
+                   String(prop("ownSends_serversNote", "text")).indexOf("not through your server's node") >= 0, true)
+            expect("...your server reached directly, so Which Tor sits under sends",
+                   [shownAny("ownSendsTorBuiltIn"), shownAny("ownServerTorBuiltIn")], [true, false])
             click("ownServerTorSwitch")
             expect("a saved address's switch applies at once", fake.last("setOwnServer"), ["setOwnServer", "https://node.example.com:9067", true])
+            // The fake prefixes https:// again; keep the address as the node module would.
+            fake.patchServers({ own: { id: "own", url: "https://node.example.com:9067", direct: false } })
+        },
+        function (v) {
+            expect("your server through Tor: one Which Tor, under the server",
+                   [shownAny("ownServerTorBuiltIn"), shownAny("ownSendsTorBuiltIn")], [true, false])
+            fake.patchServers({ servers: [] })
+        },
+        function (v) {
+            expect("no public server on: your server sends them itself", vis("ownSendsServersLine") ? vis("ownSendsServersLine").text : "",
+                   "No server under Public sources is on, so your server sends them itself.")
+            fake.patchServers({ servers: JSON.parse(scene.servers).servers })
+            click("sourcePublic")
+            expect("public sources again", fake.last("setChainSource"), ["setChainSource", "public"])
+        },
+        function (v) {
+            click("sourceOwn")
+            expect("your own node with Zebra running: In Logos at once", [fake.count("setLocalNode"), fake.last("setLocalNode")],
+                   [2, ["setLocalNode", true]])
+            expect("...even with an address saved before", [v.chainSource, prop("ownNodeInLogos", "checked"), prop("ownNodeAtAddress", "checked")],
+                   ["local", true, false])
             click("sourcePublic")
             expect("public sources again", fake.last("setChainSource"), ["setChainSource", "public"])
         },
