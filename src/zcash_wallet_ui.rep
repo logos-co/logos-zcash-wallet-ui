@@ -99,7 +99,7 @@ class ZcashWalletUi
 
     // ---- servers and privacy: refused while a wallet is open, applied when one opens ----
     // Each returns "" or the refusal: the servers sheet is modal, so lastError would sit behind it.
-    // all, identifying or none: what goes through Tor. The first-run choice answers with it too.
+    // all, identifying or none: what goes through Tor, for the active network. Node's first Save sends it too.
     SLOT(QString setTorUse(QString mode))
     // Which Tor: "tor" (built in) or a socks5h://host:port; "direct" on regtest only.
     SLOT(QString setProxy(QString proxy))

@@ -28,20 +28,15 @@ It talks only to `zcash_wallet_backend`.
   against that commit.
 - **Network picker** in the header, enabled only while no wallet is open; it shows the open
   wallet's network.
-- **Where the wallet gets Zcash's chain**, asked per network, the first time each is used and
-  before a wallet on it is created, restored or opened: the screen names the network and takes
-  the place of the Wallets screen while the node module's `torUseChosen` is false for it. Its
-  sections and words are the Bitcoin and Monero wallets'.
-  - **Your own node** (tagged Most private) or **Public sources**, which is preselected.
-  - Under Public sources, **Use Tor for**, most private first, each with what happens, its pros
-    and its cons: **Everything**, **Only what identifies you** (tagged Recommended) and
-    **Nothing**. A fresh install has Only what identifies you selected. An existing one has its
-    routing so far, tagged Current, so Continue keeps it.
-  - Continue stores the choice for the active network (`set_tor_use`), and the screen does not
-    come back on it. With your own node it keeps the node module's mode (Only what identifies
-    you on a fresh install) and opens Node to pick where the node runs.
-  - An unlock another app asks for waits for it. It never shows over an open wallet, nor with a
-    backend too old to have the setting.
+- **Node first, per network:** while the node module's `torUseChosen` is false for the active
+  network, the Wallets screen shows "Set up Node for mainnet" with **Open Node**, and Create,
+  Restore and Open wait: the first time each network is used. Node is the one place this is set,
+  in the Bitcoin and Monero wallets' words. On that first visit it says the choice isn't saved
+  yet and its button reads **Save**, which stores the checked Use Tor for (`set_tor_use`): a fresh
+  install's Only what identifies you, or an existing install's routing, so a first save never
+  weakens it. Picking another mode saves it at once. A refusal shows in the sheet, which stays
+  open. An unlock another app asks for waits for it. It never shows over an open wallet, nor with
+  a backend too old to have the setting.
 - **Node** reads top to bottom as one choice, **Where the wallet gets Zcash's chain**, for the
   network it names. Each setting shows only while it can change something. While a wallet is open the
   sheet keeps its shape but is read-only: changes apply when a wallet opens.
