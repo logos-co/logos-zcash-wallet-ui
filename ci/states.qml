@@ -183,8 +183,14 @@ Item {
                    [false, true, false])
             expect("...identifying still Recommended", vis("torUseSettingRecommended_identifying") !== null, true)
             expect("...no Current tag any more", findAll(view.item, "torUseSettingCurrent_all", 0, []).length, 0)
-            expect("...each option with what happens, pros and cons", ["Happens_", "Pros_", "Cons_"].map(function (k) { return vis("torUseSetting" + k + "identifying") !== null }),
-                   [true, true, true])
+            expect("...each option with an i, nothing spelled out under it", ["identifying", "all", "none"].map(function (m) {
+                return vis("torUseSettingInfo_" + m) !== null && ["Happens_", "Pros_", "Cons_"].every(function (k) {
+                    return findAll(view.item, "torUseSetting" + k + m, 0, []).length > 0 && vis("torUseSetting" + k + m) === null }) }), [true, true, true])
+            var idInfo = vis("torUseSettingInfo_identifying")
+            idInfo.clicked()
+            expect("...its i opens what happens, pros and cons", [idInfo.opened, idInfo.title, ["Happens_", "Pros_", "Cons_"].map(function (k) {
+                return vis("torUseSetting" + k + "identifying") !== null })], [true, "Only what identifies you", [true, true, true]])
+            idInfo.close()
             expect("...and what every mode shares", shownAny("torUseEveryMode"), true)
             expect("the button saves", prop("networkSheetDone", "text"), "Save")
             click("networkSheetDone")
@@ -285,7 +291,8 @@ Item {
                    ys.every(function (y, i) { return y >= 0 && (i === 0 || y > ys[i - 1]) }) ? "in order" : JSON.stringify(ys), "in order")
             expect("...for this network", prop("chainNetworkLine", "text"), "For mainnet. Each network has its own setting.")
             expect("...and what every mode shares", shownAny("torUseEveryMode"), true)
-            expect("...options with what happens, pros and cons", shownAny("torUseSettingCons_identifying"), true)
+            expect("...options with what happens, pros and cons behind an i", shownAny("torUseSettingInfo_identifying") && !shownAny("torUseSettingCons_identifying"), true)
+            expect("...the servers' choices too", ["serversPickedInfo", "serversChosenInfo"].map(shownAny).concat([shownAny("serversPickedNote")]), [true, true, false])
             expect("identifying: no per-server Tor switch", shownAny("torSwitch_zec.rocks"), false)
             expect("...Which Tor: the one with Logos, with its chip and Manage Tor",
                    [prop("publicTorBuiltIn", "checked"), shownAny("publicManageTor"), shownAny("proxyField")], [true, true, false])
@@ -316,7 +323,8 @@ Item {
         function (v) {
             expect("your own node: picked before anything is saved", [prop("sourceOwn", "checked"), prop("sourcePublic", "checked")], [true, false])
             expect("...nothing sent yet", fake.count("setChainSource") + fake.count("setLocalNode"), 0)
-            expect("...one note of benefits and costs", visCount("ownNodeNote"), 1)
+            expect("...one note of benefits and costs, behind its i", [findAll(view.item, "ownNodeNote", 0, []).length, visCount("ownNodeNote"),
+                   shownAny("sourceOwnInfo")], [1, 0, true])
             expect("...no Use Tor for, no Which Tor, no servers",
                    [shownAny("torUseSetting_identifying"), shownAny("publicTorBuiltIn"), shownAny("localSendsTorBuiltIn"),
                     shownAny("addServerPane"), shownAny("serverRows")], [false, false, false, false, false])

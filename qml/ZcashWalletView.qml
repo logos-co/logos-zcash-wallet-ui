@@ -740,7 +740,7 @@ Item {
     }
     readonly property string ownNodeNote:
         "<b>Benefits:</b> the wallet asks only your node for blocks, transactions and transparent addresses, so no one "
-        + "else sees what it looks up. <b>Costs:</b> about 300 GB of disk on mainnet and a first sync of hours to days. "
+        + "else sees what it looks up.<br><br><b>Costs:</b> about 300 GB of disk on mainnet and a first sync of hours to days. "
         + "It must be running while you use the wallet."
     // How your own server's address is reached: "lan", "onion" or "internet"; "" with none typed.
     function ownAddressKind(text) {
@@ -1035,8 +1035,10 @@ Item {
                 label: "Your own node"
                 badge: "Most private"
                 note: root.ownNodeSummary
+                info: root.ownNodeNote
+                infoName: "ownNodeNote"
                 selected: root.ownNodeChosen
-                enabled: root.ready && !root.networkLocked
+                choosable: root.ready && !root.networkLocked
                 onPicked: root.ownNodeOpen = true
             }
             ColumnLayout {
@@ -1056,12 +1058,6 @@ Item {
                     onTriggered: backend.refreshLocalNode()
                 }
                 LogosText {
-                    objectName: "ownNodeNote"
-                    Layout.fillWidth: true; Layout.preferredWidth: 1; wrapMode: Text.Wrap; textFormat: Text.StyledText
-                    color: Theme.palette.textSecondary
-                    text: root.ownNodeNote
-                }
-                LogosText {
                     objectName: "ownNodePickLine"
                     visible: root.chainSource === "public" && !root.ownAddressOpen
                     Layout.fillWidth: true; Layout.preferredWidth: 1; wrapMode: Text.Wrap; color: Theme.palette.textTertiary
@@ -1073,10 +1069,10 @@ Item {
                     Layout.fillWidth: true
                     name: "ownNodeInLogos"
                     label: "In Logos"
-                    note: "The Zcash Zebra Node app on this computer."
+                    info: "The Zcash Zebra Node app on this computer."
                     selected: root.inLogosChosen
                     // Only while Zebra runs this network, or to keep it.
-                    enabled: root.ready && !root.networkLocked && (root.localNodeOn || root.localNodeAvailable)
+                    choosable: root.ready && !root.networkLocked && (root.localNodeOn || root.localNodeAvailable)
                     onPicked: root.pickInLogos()
                 }
                 ColumnLayout {
@@ -1147,11 +1143,11 @@ Item {
                             name: "localSends_servers"
                             label: "Through public servers, over Tor"
                             badge: "Recommended"
-                            note: "Your node isn't told who sent it, unless only one server is on and your node hasn't seen the "
+                            info: "Your node isn't told who sent it, unless only one server is on and your node hasn't seen the "
                                   + "payment within two minutes; then the wallet sends it through your node too. The same servers "
                                   + "cross-check your node's chain."
                             selected: root.localSends === "servers"
-                            enabled: root.ready && !root.networkLocked
+                            choosable: root.ready && !root.networkLocked
                             onPicked: if (!selected) root.networkCall(backend.setLocalSends("servers"), "sends")
                         }
                         ColumnLayout {
@@ -1191,9 +1187,9 @@ Item {
                             Layout.fillWidth: true
                             name: "localSends_node"
                             label: "Through your node"
-                            note: "No server is contacted, but Zebra's peers can tell this computer sent it."
+                            info: "No server is contacted, but Zebra's peers can tell this computer sent it."
                             selected: root.localSends === "node"
-                            enabled: root.ready && !root.networkLocked
+                            choosable: root.ready && !root.networkLocked
                             onPicked: if (!selected) root.networkCall(backend.setLocalSends("node"), "sends")
                         }
                         LogosNotice {
@@ -1211,9 +1207,9 @@ Item {
                     name: "ownNodeAtAddress"
                     visible: root.sourcesKnown
                     label: "At an address"
-                    note: "A node you run elsewhere, with lightwalletd in front of it."
+                    info: "A node you run elsewhere, with lightwalletd in front of it."
                     selected: root.chainSource === "own" || root.ownAddressOpen
-                    enabled: root.ready && !root.networkLocked
+                    choosable: root.ready && !root.networkLocked
                     onPicked: root.pickAtAddress()
                 }
                 ColumnLayout {
@@ -1306,7 +1302,7 @@ Item {
                 label: "Public sources"
                 note: root.publicSummary
                 selected: !root.ownNodeChosen
-                enabled: root.ready && !root.networkLocked
+                choosable: root.ready && !root.networkLocked
                 onPicked: root.pickPublic()
             }
             LogosNotice {
@@ -1332,19 +1328,19 @@ Item {
                         Layout.fillWidth: true
                         name: "serversPicked"
                         label: "Servers picked for you"
-                        note: "Servers from two operators. Only what identifies you splits blocks and lookups between them; "
+                        info: "Servers from two operators. Only what identifies you splits blocks and lookups between them; "
                               + "the other modes check each one's blocks against the other's."
                         selected: !root.choosingServers
-                        enabled: root.ready && !root.networkLocked
+                        choosable: root.ready && !root.networkLocked
                         onPicked: if (!selected) root.networkCall(backend.applyPreset("two-operators"), "servers")
                     }
                     Choice {
                         Layout.fillWidth: true
                         name: "serversChosen"
                         label: "Servers you choose"
-                        note: "Turn servers on and off, and add your own."
+                        info: "Turn servers on and off, and add your own."
                         selected: root.choosingServers
-                        enabled: root.ready && !root.networkLocked
+                        choosable: root.ready && !root.networkLocked
                         onPicked: if (!selected) root.networkCall(backend.applyPreset("custom"), "servers")
                     }
                 }
@@ -1369,7 +1365,7 @@ Item {
                             // An open wallet's Settings shows the same pane, read-only and short.
                             detailed: !root.networkLocked
                             selected: root.torUse === modelData.key
-                            enabled: root.ready && !root.networkLocked
+                            choosable: root.ready && !root.networkLocked
                             onPicked: if (!selected) root.networkCall(backend.setTorUse(modelData.key), "torUse", null,
                                                                       function () { root.torUseAnswered = true })
                         }
@@ -2403,51 +2399,70 @@ Item {
         }
     }
 
-    // One "Use Tor for" option: label and tags, then what happens, pros and cons when `detailed`, worded as the other wallets'.
-    component TorUseOption: ColumnLayout {
-        id: opt
-        property var mode: ({})
-        property bool selected: false
-        property bool detailed: true
-        // objectNames: <prefix>_<key>, <prefix>Recommended_<key>.
-        property string prefix: ""
-        signal picked()
-        spacing: Theme.spacing.tiny
-        RowLayout {
-            spacing: Theme.spacing.small
-            LogosRadioButton { objectName: opt.prefix + "_" + opt.mode.key; text: opt.mode.label
-                               checkable: false; autoExclusive: false; checked: opt.selected; onClicked: opt.picked() }
-            LogosBadge { objectName: opt.prefix + "Recommended_" + opt.mode.key; visible: opt.mode.key === "identifying"
-                         text: "Recommended"; color: Theme.palette.success }
-        }
-        Repeater {
-            model: opt.detailed ? [["What happens", opt.mode.happens], ["Pros", opt.mode.pros], ["Cons", opt.mode.cons]] : []
-            LogosText {
-                required property var modelData
-                required property int index
-                objectName: opt.prefix + ["Happens_", "Pros_", "Cons_"][index] + opt.mode.key
-                Layout.fillWidth: true; Layout.preferredWidth: 1; wrapMode: Text.Wrap; textFormat: Text.StyledText
-                color: Theme.palette.textSecondary
-                text: "<b>" + modelData[0] + ":</b> " + (modelData[1] || "")
+    // An "i" beside a choice; its dialog holds the explanation, one paragraph per line.
+    component ChoiceInfo: LogosInfoButton {
+        id: choiceInfo
+        property var lines: []   // [{ name: objectName, text: StyledText }]
+        dialogContentItem: ColumnLayout {
+            spacing: Theme.spacing.medium
+            Repeater {
+                model: choiceInfo.lines
+                LogosText {
+                    required property var modelData
+                    objectName: modelData.name || ""
+                    Layout.fillWidth: true; Layout.preferredWidth: 1; wrapMode: Text.Wrap; textFormat: Text.StyledText
+                    color: Theme.palette.textSecondary; text: modelData.text || ""
+                }
             }
         }
     }
 
-    // One option of a radio group: the radio is the state. objectNames: <name>, <name>Badge.
+    // One "Use Tor for" option: label and tags; what happens, pros and cons behind its "i" when `detailed`.
+    component TorUseOption: RowLayout {
+        id: opt
+        property var mode: ({})
+        property bool selected: false
+        property bool choosable: true
+        property bool detailed: true
+        // objectNames: <prefix>_<key>, <prefix>Recommended_<key>, <prefix>Info_<key>, <prefix>Happens_<key>…
+        property string prefix: ""
+        signal picked()
+        spacing: Theme.spacing.small
+        LogosRadioButton { objectName: opt.prefix + "_" + opt.mode.key; text: opt.mode.label; enabled: opt.choosable
+                           checkable: false; autoExclusive: false; checked: opt.selected; onClicked: opt.picked() }
+        LogosBadge { objectName: opt.prefix + "Recommended_" + opt.mode.key; visible: opt.mode.key === "identifying"
+                     text: "Recommended"; color: Theme.palette.success }
+        ChoiceInfo {
+            objectName: opt.prefix + "Info_" + opt.mode.key
+            visible: opt.detailed
+            title: opt.mode.label || ""
+            lines: [["What happens", "Happens_", opt.mode.happens], ["Pros", "Pros_", opt.mode.pros], ["Cons", "Cons_", opt.mode.cons]]
+                   .map(function (l) { return { name: opt.prefix + l[1] + opt.mode.key, text: "<b>" + l[0] + ":</b> " + (l[2] || "") } })
+        }
+        Item { Layout.fillWidth: true }
+    }
+
+    // One option of a radio group: the radio is the state; `note` under it, `info` behind its "i".
+    // objectNames: <name>, <name>Badge, <name>Info, and infoName (<name>Note) for the info's text.
     component Choice: ColumnLayout {
         id: choice
         property string name: ""
         property string label: ""
         property string badge: ""
         property string note: ""
+        property string info: ""
+        property string infoName: name + "Note"
+        property bool choosable: true
         property bool selected: false
         signal picked()
         spacing: 2
         RowLayout {
             spacing: Theme.spacing.small
-            LogosRadioButton { objectName: choice.name; text: choice.label
+            LogosRadioButton { objectName: choice.name; text: choice.label; enabled: choice.choosable
                                checkable: false; autoExclusive: false; checked: choice.selected; onClicked: choice.picked() }
             LogosBadge { objectName: choice.name + "Badge"; visible: choice.badge !== ""; text: choice.badge; color: Theme.palette.success }
+            ChoiceInfo { objectName: choice.name + "Info"; visible: choice.info !== ""; title: choice.label
+                         lines: [{ name: choice.infoName, text: choice.info }] }
         }
         LogosText { visible: choice.note !== ""; Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.leftMargin: 30
                     wrapMode: Text.Wrap; color: Theme.palette.textSecondary; text: choice.note }
