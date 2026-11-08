@@ -3096,9 +3096,25 @@ Item {
         }
         contentItem: ScrollView {
             id: networkSheetScroll
+            objectName: "networkSheetScroll"
             clip: true
             contentWidth: availableWidth
             implicitHeight: Math.min(networkSheetLoader.implicitHeight, Math.max(200, root.height - 200))
+            // Scrolls the item named `name` into view, at the bottom. Doc-tests call it before a screenshot:
+            // their actions never scroll the sheet.
+            function reveal(name) {
+                const find = it => {
+                    if (it.objectName === name) return it
+                    for (let i = 0; i < it.children.length; ++i) { const f = find(it.children[i]); if (f) return f }
+                    return null
+                }
+                const pane = networkSheetLoader.item, it = pane ? find(pane) : null
+                if (!it) return false
+                const f = networkSheetScroll.contentItem
+                const y = it.mapToItem(pane, 0, 0).y + it.height + 16 - f.height
+                f.contentY = Math.max(0, Math.min(y, f.contentHeight - f.height))
+                return true
+            }
             Loader {
                 // Less the bar: it is drawn over the content and would take clicks meant for the right edge.
                 id: networkSheetLoader
