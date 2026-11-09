@@ -198,13 +198,18 @@ Item {
     readonly property string chainSource: sourcesKnown ? serversInfo.chainSource : (localNodeOn ? "local" : "public")
     // Your own server at an address: { url, direct, ... }, kept while another source is in use.
     readonly property var ownServer: serversInfo.own || null
-    // With the node in Logos, payments go "servers" (over Tor) or "node".
+    // With the node in Logos, payments go "servers" (over Tor) or "node"; with your server at an
+    // address too, when the node module lists "own" in localSendsFor.
     readonly property string localSends: serversInfo.localSends || "servers"
+    readonly property bool ownSendsKnown: Array.isArray(serversInfo.localSendsFor) && serversInfo.localSendsFor.indexOf("own") >= 0
+    readonly property bool ownSendsViaServers: chainSource === "own" && ownSendsKnown && localSends === "servers" && broadcastServer
     // "Your own node" or "At an address" picked before anything is saved.
     property bool ownNodeOpen: false
     property bool ownAddressOpen: false
     readonly property bool ownNodeChosen: chainSource !== "public" || ownNodeOpen
     readonly property bool inLogosChosen: chainSource === "local" && !ownAddressOpen
+    // In Logos is the default place: picked when "Your own node" opens, applied once Zebra runs.
+    readonly property bool inLogosPreselected: chainSource === "public" && ownNodeOpen && !ownAddressOpen
     // The "Reach it through Tor" switch before Save; null follows the saved server.
     property var ownTorPick: null
     readonly property bool ownServerTor: ownTorPick !== null ? ownTorPick : !(ownServer && ownServer.direct === true)
@@ -240,7 +245,7 @@ Item {
     property string networkNoteAt: ""
     onNetworkLockedChanged: { torOffAskedFor = ""; networkNote = ""; ownTorOpen = false; ownNodeOpen = false; ownAddressOpen = false; ownTorPick = null }
     readonly property bool localNodeAvailable: localNode.available === true
-    onLocalNodeAvailableChanged: if (localNodeAvailable) localNodeNote = ""
+    onLocalNodeAvailableChanged: if (localNodeAvailable) { localNodeNote = ""; root.takeInLogos() }
     // While the wallet reads from your node: the blocks it is behind, by its own estimate or the
     // last server check. 0 within 10 blocks, and on regtest, whose estimate runs far ahead.
     readonly property int nodeBehind: {
@@ -741,7 +746,15 @@ Item {
     readonly property string ownNodeNote:
         "<b>Benefits:</b> the wallet asks only your node for blocks, transactions and transparent addresses, so no one "
         + "else sees what it looks up.<br><br><b>Costs:</b> about 300 GB of disk on mainnet and a first sync of hours to days. "
-        + "It must be running while you use the wallet."
+        + "It must be running while you use the wallet.<br><br>" + ownSendsNote
+    // An older node module sends through a server at an address always.
+    readonly property string ownSendsNote: ownSendsKnown
+        ? "<b>Sending:</b> payments go as Sending payments says: through public servers over Tor, the default, or through "
+          + "your node. Zebra in Logos then passes them to its peers from this computer's IP address; a server at an "
+          + "address hands them to its node, which passes them to its peers."
+        : "<b>Sending:</b> with Zebra in Logos, payments go as Sending payments says: through public servers over Tor, the "
+          + "default, or through Zebra, which passes them to its peers from this computer's IP address. A server at an "
+          + "address always hands them to its node, which passes them to its peers."
     // How your own server's address is reached: "lan", "onion" or "internet"; "" with none typed.
     function ownAddressKind(text) {
         var t = (text || "").trim()
@@ -754,6 +767,9 @@ Item {
         root.ownAddressOpen = false
         root.ownTorPick = null
         if (root.chainSource !== "local") root.setLocalNode(true)
+    }
+    function takeInLogos() {
+        if (root.inLogosPreselected && root.localNodeAvailable && root.ready && !root.networkLocked) root.pickInLogos()
     }
     // With an address saved before, it is used again at once; otherwise the field waits for one.
     function pickAtAddress() {
@@ -1039,7 +1055,7 @@ Item {
                 infoName: "ownNodeNote"
                 selected: root.ownNodeChosen
                 choosable: root.ready && !root.networkLocked
-                onPicked: root.ownNodeOpen = true
+                onPicked: { root.ownNodeOpen = true; root.takeInLogos() }
             }
             ColumnLayout {
                 id: localNodePane
@@ -1061,7 +1077,8 @@ Item {
                     objectName: "ownNodePickLine"
                     visible: root.chainSource === "public" && !root.ownAddressOpen
                     Layout.fillWidth: true; Layout.preferredWidth: 1; wrapMode: Text.Wrap; color: Theme.palette.textTertiary
-                    text: "Pick where it runs. Until then the wallet keeps using public sources."
+                    text: "In Logos takes over once Zebra is running for " + (root.activeNetwork || "this network")
+                          + ". Until then the wallet keeps using public sources."
                 }
 
                 // In Logos: the Zebra node this computer runs, read over Logos IPC.
@@ -1070,7 +1087,7 @@ Item {
                     name: "ownNodeInLogos"
                     label: "In Logos"
                     info: "The Zcash Zebra Node app on this computer."
-                    selected: root.inLogosChosen
+                    selected: root.inLogosChosen || root.inLogosPreselected
                     // Only while Zebra runs this network, or to keep it.
                     choosable: root.ready && !root.networkLocked && (root.localNodeOn || root.localNodeAvailable)
                     onPicked: root.pickInLogos()
@@ -1268,7 +1285,8 @@ Item {
                         tor: root.tor
                         torText: root.torLine()
                         torTint: root.torColor()
-                        waiting: "The wallet can't reach your node until it can."
+                        waiting: root.ownSendsViaServers ? "The wallet can't reach your node or send payments until it can."
+                                                         : "The wallet can't reach your node until it can."
                         note: root.networkNoteAt === "proxy" ? root.networkNote : ""
                         manageNote: root.torNote
                         onPickBuiltIn: root.useBuiltInTor()
@@ -1290,6 +1308,78 @@ Item {
                         severity: LogosNotice.Error
                         shown: root.networkNote !== "" && root.networkNoteAt === "own"
                         message: shown ? root.networkNote : ""
+                    }
+
+                    // Where payments go out, with your server at an address: the same setting as In Logos.
+                    ColumnLayout {
+                        objectName: "ownSendsPane"
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.spacing.tiny
+                        visible: root.chainSource === "own" && root.ownSendsKnown
+                        spacing: Theme.spacing.tiny
+                        LogosText { text: "Sending payments"; font.weight: Theme.typography.weightMedium }
+                        Choice {
+                            Layout.fillWidth: true
+                            name: "ownSends_servers"
+                            label: "Through public servers, over Tor"
+                            badge: "Recommended"
+                            info: "The payment reaches the network through the servers, not through your server's node. If only one "
+                                  + "server is on and your server hasn't seen the payment within two minutes, the wallet sends it "
+                                  + "through your server too."
+                            selected: root.localSends === "servers"
+                            choosable: root.ready && !root.networkLocked
+                            onPicked: if (!selected) root.networkCall(backend.setLocalSends("servers"), "sends")
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 30
+                            visible: root.localSends === "servers"
+                            spacing: Theme.spacing.tiny
+                            LogosText {
+                                objectName: "ownSendsServersLine"
+                                Layout.fillWidth: true; Layout.preferredWidth: 1; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                color: Theme.palette.textTertiary
+                                text: root.broadcastServer
+                                      ? "Through " + root.operatorsInUse.join(" or ") + ", the servers under Public sources."
+                                      : "No server under Public sources is on, so your server sends them itself."
+                            }
+                            // Your server's Which Tor, when it goes through Tor, covers sends too.
+                            WhichTor {
+                                Layout.fillWidth: true
+                                prefix: "ownSends"
+                                visible: root.broadcastServer && !pane.ownNeedsTor && (root.hasTor || root.ownTorOpen)
+                                proxy: root.proxySetting
+                                ownOpen: root.ownTorOpen
+                                locked: root.networkLocked
+                                ready: root.ready
+                                tor: root.tor
+                                torText: root.torLine()
+                                torTint: root.torColor()
+                                waiting: "Payments can't go out until it can."
+                                note: root.networkNoteAt === "proxy" ? root.networkNote : ""
+                                manageNote: root.torNote
+                                onPickBuiltIn: root.useBuiltInTor()
+                                onPickOwn: root.ownTorOpen = true
+                                onUseOwn: function (address) { root.networkCall(backend.setProxy(address), "proxy") }
+                                onManage: root.manageTor()
+                            }
+                        }
+                        Choice {
+                            Layout.fillWidth: true
+                            name: "ownSends_node"
+                            label: "Through your server"
+                            info: "No public server is contacted. Your server's node passes the payment to its peers, which can "
+                                  + "tell that node sent it."
+                            selected: root.localSends === "node"
+                            choosable: root.ready && !root.networkLocked
+                            onPicked: if (!selected) root.networkCall(backend.setLocalSends("node"), "sends")
+                        }
+                        LogosNotice {
+                            Layout.fillWidth: true
+                            severity: LogosNotice.Error
+                            shown: root.networkNote !== "" && root.networkNoteAt === "sends"
+                            message: shown ? root.networkNote : ""
+                        }
                     }
                 }
             }
