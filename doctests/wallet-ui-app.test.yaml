@@ -167,34 +167,102 @@ sections:
               property: "proxySetting"
               value: "tor"
               timeout: 30000
-            - name: "Answer the first-run Tor choice, if this backend asks it, with Everything"
-              # A backend with tor_use asks once, before any wallet; Everything keeps the per-server
-              # Tor switches tested below. An older backend asks nothing, and the call does nothing.
-              # The app reads tor_use before the servers, so the wait above covers it.
+            - name: "Open Node on the first network"
               action: call_method
-              find_value: "zcashWalletRoot"
-              method: "chooseTorUse"
-              args: ["all"]
-            - name: "Nothing is asked any more: the Wallets screen shows"
+              find_value: "networkSettingsButton"
+              method: "clicked"
+              args: []
+            - name: "Node opens on the first network"
               action: expect_property
-              find_value: "walletsPage"
+              find_value: "networkSheet"
               property: "visible"
               value: true
+              timeout: 15000
+              screenshot: "wallet-ui-node-first-visit.png"
+            - name: "Use Tor for Everything on the first network: picking saves it"
+              # Everything keeps the per-server Tor switches tested below; already Everything, the pick is a no-op.
+              action: call_method
+              find_value: "torUseSetting_all"
+              method: "clicked"
+              args: []
+            - name: "the first network uses Everything"
+              action: expect_property
+              find_value: "zcashWalletRoot"
+              property: "torUse"
+              value: "all"
+              timeout: 30000
+            - name: "Close Node on the first network: Done once saved"
+              action: call_method
+              find_value: "networkSheetDone"
+              method: "clicked"
+              args: []
+            - name: "No notice on the first network: wallets can open"
+              action: expect_property
+              find_value: "nodeSetupNotice"
+              property: "visible"
+              value: false
               timeout: 30000
             - name: "Select regtest, which the modules offer once regtest.json is there"
               action: call_method
               find_value: "zcashWalletRoot"
               method: "selectNetwork"
               args: ["regtest"]
-            - name: "The app is on regtest"
+            - name: "The app is on regtest, as the header shows"
               action: expect_property
-              find_value: "networkChip"
-              property: "text"
+              find_value: "networkPicker"
+              property: "displayText"
               value: "regtest"
+              timeout: 30000
+            - name: "The Use Tor for shown is regtest's"
+              # Read after the network list; an older backend names no network, and the view falls back to the active one.
+              action: expect_property
+              find_value: "zcashWalletRoot"
+              property: "torUseNetwork"
+              value: "regtest"
+              timeout: 30000
+            - name: "Open Node on regtest"
+              action: call_method
+              find_value: "networkSettingsButton"
+              method: "clicked"
+              args: []
+            - name: "Node opens on regtest"
+              action: expect_property
+              find_value: "networkSheet"
+              property: "visible"
+              value: true
+              timeout: 15000
+            - name: "Use Tor for Everything on regtest: picking saves it"
+              # A node module that keeps one setting for every network has it already; the pick is then a no-op.
+              action: call_method
+              find_value: "torUseSetting_all"
+              method: "clicked"
+              args: []
+            - name: "regtest uses Everything"
+              action: expect_property
+              find_value: "zcashWalletRoot"
+              property: "torUse"
+              value: "all"
+              timeout: 30000
+            - name: "Close Node on regtest: Done once saved"
+              action: call_method
+              find_value: "networkSheetDone"
+              method: "clicked"
+              args: []
+            - name: "No notice on regtest: wallets can open"
+              action: expect_property
+              find_value: "nodeSetupNotice"
+              property: "visible"
+              value: false
+              timeout: 30000
+            - name: "The Wallets screen shows for regtest"
+              action: expect_property
+              find_value: "walletsPage"
+              property: "visible"
+              value: true
               timeout: 30000
               screenshot: "wallet-ui-wallets.png"
 
-            - name: "Open Servers and privacy"
+            - name: "Open Node"
               action: click_object
               find_value: "networkSettingsButton"
             - name: "The sheet opens"
@@ -334,6 +402,12 @@ sections:
               property: "overall"
               value: "ok"
               timeout: 120000
+            - name: "Scroll to them"
+              # Under your own node and Use Tor for, the servers sit below the sheet's fold.
+              action: call_method
+              find_value: "networkSheetScroll"
+              method: "reveal"
+              args: ["serverHealth_127.0.0.1-2"]
               screenshot: "wallet-ui-servers.png"
 
             - name: "Add a server that takes the connection and never answers"
@@ -357,6 +431,11 @@ sections:
               property: "text"
               value: "checking…"
               timeout: 15000
+            - name: "Scroll to it"
+              action: call_method
+              find_value: "networkSheetScroll"
+              method: "reveal"
+              args: ["serverHealth_127.0.0.1-3"]
               screenshot: "wallet-ui-server-checking.png"
             - name: "...while the servers checked before keep their status"
               action: expect_property
@@ -437,6 +516,11 @@ sections:
               property: "healthState"
               value: "reachable"
               timeout: 120000
+            - name: "Scroll to it"
+              action: call_method
+              find_value: "networkSheetScroll"
+              method: "reveal"
+              args: ["ownServerHealth"]
               screenshot: "wallet-ui-own-server.png"
             - name: "Back to public sources"
               action: call_method
