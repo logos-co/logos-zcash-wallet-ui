@@ -1160,9 +1160,8 @@ Item {
                             name: "localSends_servers"
                             label: "Through public servers, over Tor"
                             badge: "Recommended"
-                            info: "Your node isn't told who sent it, unless only one server is on and your node hasn't seen the "
-                                  + "payment within two minutes; then the wallet sends it through your node too. The same servers "
-                                  + "cross-check your node's chain."
+                            // The relay check may ask the node; a re-send goes only to a server (wallet core).
+                            info: "Your node isn't told who sent it. The same servers cross-check your node's chain."
                             selected: root.localSends === "servers"
                             choosable: root.ready && !root.networkLocked
                             onPicked: if (!selected) root.networkCall(backend.setLocalSends("servers"), "sends")
@@ -1418,8 +1417,8 @@ Item {
                         Layout.fillWidth: true
                         name: "serversPicked"
                         label: "Servers picked for you"
-                        info: "Servers from two operators. Only what identifies you splits blocks and lookups between them; "
-                              + "the other modes check each one's blocks against the other's."
+                        info: "Servers from two operators, each checking the blocks the wallet gets from the other. Only what "
+                              + "identifies you splits blocks and lookups between them."
                         selected: !root.choosingServers
                         choosable: root.ready && !root.networkLocked
                         onPicked: if (!selected) root.networkCall(backend.applyPreset("two-operators"), "servers")
@@ -1502,9 +1501,11 @@ Item {
                         title: "More than one operator"
                         text: "With Everything or Nothing, blocks come from each operator in turn and must fit together, so a "
                               + "false chain stops the sync, and no one operator sees every transaction you look up. With Only what "
-                              + "identifies you, blocks come from one operator and lookups go to the other. A transaction one server "
-                              + "accepts must reach another server within two minutes, or the wallet sends it there too. Servers of "
-                              + "the same operator only stand in for each other."
+                              + "identifies you, blocks come from one operator and lookups go to the other, which checks the first "
+                              + "one's chain every two minutes. If a server stops answering, the next one takes over; with Only what "
+                              + "identifies you, only a server of the operator you sync from does. A transaction one server accepts "
+                              + "must reach another server within two minutes, or the wallet sends it there too. Servers of the same "
+                              + "operator only stand in for each other."
                     }
                     LogosBadge { visible: root.overall !== ""; text: root.overallLabel(root.overall); color: root.overallColor(root.overall) }
                     Item { Layout.fillWidth: true }
